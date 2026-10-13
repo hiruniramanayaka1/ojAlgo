@@ -34,6 +34,47 @@ Added / Changed / Deprecated / Fixed / Removed / Security
 - `LinearSolver`: the primal simplex reported `UNBOUNDED` when the only rows that bound the step had elements below its absolute pivot tolerance, 5e-7 – e.g. min x subject to -2^-21 x <= 0 with x free, where the solution is x = 0. When no other row bounds the step, such a row now does, provided the step is zero within the ratio test tolerance, and the element is at least 1e-11 and not negligible relative to the largest element of the column. The example is now `OPTIMAL`. Through `ExpressionsBasedModel`, with its presolve and row scaling, this needed rows with coefficients some 11 orders of magnitude apart. (Issue [#715](https://github.com/optimatika/ojAlgo/issues/715))
 - `LinearSolver`: when all elements of the entering column were small, the primal simplex ignored the rows with elements below its absolute pivot tolerance, 5e-7, even when the step the other rows allowed took their basic variables far past their bounds. The dual simplex restored feasibility at the same basis, the primal simplex repeated the step, and so on – the issue's LP, 17 variables and 379 rows, ended `APPROXIMATE` at the iteration limit, 0.7 above the optimum. Such a row now bounds the step when the step would take its basic variable past its bound by more than the feasibility tolerance, provided its element is at least 1e-11 and 1e-8 relative to the largest element of the column. The issue's LP is now `OPTIMAL` in 14 iterations. (Issue [#716](https://github.com/optimatika/ojAlgo/issues/716))
 
+### Added
+
+#### org.ojalgo
+
+- `OjAlgoUtils.getNativeLibrary()`: the native BLAS library that ojAlgo uses, if any.
+
+#### org.ojalgo.array
+
+- `OffHeapArray.Factory.newMapped(File, long)`: a memory mapped file as an off-heap array. The file is created if it does not exist, and grown if it holds fewer elements. Close the array to unmap the file.
+
+#### org.ojalgo.matrix
+
+- Optional native BLAS and LAPACK, through Java's Foreign Function & Memory API. When the JVM grants ojAlgo native access (`--enable-native-access=ojalgo` on the module path, `--enable-native-access=ALL-UNNAMED` on the class path) and a working library is found, large enough matrix multiplications, matrix-vector products, triangular solves and vector operations call it. ojAlgo looks for Accelerate on macOS; OpenBLAS, FlexiBLAS, MKL, BLIS or the reference BLAS on Linux; OpenBLAS or MKL on Windows. The system property `ojalgo.native.library` names the library file(s) to use instead, or switches native code off with `none`. Every operation still has a pure Java implementation, and without native access no native code is used. See the README.
+- The dense `double` decompositions call the native LAPACK routines, for large enough matrices: `LU` (`dgetrf2`, `dgetrs`), `Cholesky` (`dpotrf`, `dpotrs`), `QR` (`dgeqrf`, `dorgqr`, `dtrtrs`), `Tridiagonal` (`dsytrd`, `dorgtr`), `Hessenberg` (`dgehrd`, `dorghr`), `Bidiagonal` (`dgebrd`, `dorgbr`), `SingularValue` (`dgesdd`), and `Eigenvalue` – Hermitian (`dsyevd`) and general (`dgeev`) matrices, and the generalised problem (`dtrsm`, `dtrmm`, `dpotrf` and `dsyevd`). Routines the library does not have use the Java implementation. The other number types, the `Raw*` implementations and the sparse decompositions are pure Java. For example, with Accelerate the eigenvalue decomposition of a 1000x1000 symmetric matrix is about 10x faster than in pure Java.
+
+### Changed
+
+ojAlgo now requires Java 22 or later. The Foreign Function & Memory API, used for the optional native BLAS and for off-heap arrays, is final from Java 22. ojAlgo no longer requires the `jdk.unsupported` module.
+
+#### org.ojalgo.array
+
+- `OffHeapArray` is backed by a `MemorySegment` (the Foreign Function & Memory API) rather than `sun.misc.Unsafe`. Allocated memory is zero initialised – previously it was uninitialised until `reset()` – and released by the garbage collector. It is `AutoCloseable`: closing a memory mapped array unmaps the file, and accessing a closed array throws `IllegalStateException`.
+
+#### org.ojalgo.matrix
+
+- `Eigenvalue.R064` for general (non-Hermitian) matrices: with a native library, `computeValuesOnly(..)` may give the eigenvalues in a different order than `decompose(..)`.
+- `Eigenvalue.R064` for Hermitian matrices, and `Eigenvalue.R064.make(..)` without the hermitian flag, return the dense implementations also at sizes where they call the native library – from 91 columns. Below that, and without a native library, `RawEigenvalue` is used up to 8192 columns, as before.
+- `LU.R064` and `QR.R064` return the dense implementations also at sizes where they call the native library.
+- `Eigenvalue.R064.makeGeneralised(..)`: the reduction to a standard eigenvalue problem, and the recovery of the eigenvectors, call the native `dtrsm` and `dtrmm` when available.
+- Matrix products where an operand is the transpose of an `R064Store` – `transpose()` or `conjugate()` – call the native BLAS for large enough products, as products of the stores themselves do.
+
+### Removed
+
+#### org.ojalgo.array
+
+- `BufferArray` and its subclasses `BufferR032`, `BufferR064`, `BufferZ008`, `BufferZ016`, `BufferZ032` and `BufferZ064`. Use `OffHeapArray` instead, and `OffHeapArray.Factory.newMapped(File, long)` for memory mapped files.
+
+#### org.ojalgo.type
+
+- `NativeMemory`. `OffHeapArray` uses the Foreign Function & Memory API directly.
+
 ## [57.6.2] – 2026-10-31
 
 ### Added
