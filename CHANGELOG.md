@@ -11,6 +11,12 @@ Added / Changed / Deprecated / Fixed / Removed / Security
 
 > Corresponds to changes in the `develop` branch since the last release
 
+### Changed
+
+#### org.ojalgo.optimisation
+
+- `ExpressionsBasedModel`: presolve prints a warning to standard error, at most once per model, when it fixes a variable whose range is within the feasibility tolerance, but not when multiplied by the variable's largest constraint or objective coefficient – e.g. max 2e20 x + z subject to 1e20 x + z <= 2, x in [0, 3e-20] and z in [0, 1], where x is fixed at 1e-20 and 3 is reported, while the optimum is 4. Such a model is badly scaled. The result is unchanged. (Issue [#709](https://github.com/optimatika/ojAlgo/issues/709))
+
 ### Fixed
 
 #### org.ojalgo.optimisation

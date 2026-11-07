@@ -462,6 +462,55 @@ public abstract class Presolvers {
     }
 
     /**
+     * Fixes the variable at the common level of the lower and upper bounds, if they are equal at the given
+     * precision. When the bounds differ, the discarded range is also measured in the units of the variable's
+     * largest coefficient (constraint coefficients, and objective coefficients times the contribution
+     * weight). If it is not negligible there the model is badly scaled, and a warning is printed to standard
+     * error, at most once per model.
+     *
+     * @return true if the variable was fixed
+     */
+    private static boolean fixWithinTolerance(final Expression expression, final Variable variable, final BigDecimal lower, final BigDecimal upper,
+            final NumberContext precision) {
+
+        BigDecimal level = precision.common(lower, upper);
+
+        if (level == null) {
+            return false;
+        }
+
+        ExpressionsBasedModel model = expression.getModel();
+
+        if (lower.compareTo(upper) != 0 && model.isScalingWarningPending()) {
+
+            IntIndex index = variable.getIndex();
+
+            BigDecimal largest = ZERO;
+            if (variable.isObjective()) {
+                largest = variable.getContributionWeight().abs();
+            }
+            for (Expression other : model.getExpressions()) {
+                BigDecimal coefficient = other.get(index).abs();
+                if (other.isConstraint()) {
+                    largest = largest.max(coefficient);
+                }
+                if (other.isObjective()) {
+                    largest = largest.max(coefficient.multiply(other.getContributionWeight().abs()));
+                }
+            }
+
+            if (precision.common(lower.multiply(largest), upper.multiply(largest)) == null) {
+                model.warnScaling(
+                        "Presolve fixed {} at {}: its range [{}, {}] is within the feasibility tolerance, but not with coefficients up to {}. The model is badly scaled, and the solution may be suboptimal or infeasible.",
+                        variable.getName(), level, lower, upper, largest);
+            }
+        }
+
+        Simplifier.fix(variable, level);
+        return true;
+    }
+
+    /**
      * Round a derived upper bound of an integer variable down to an integer, tolerantly. See
      * {@link #ceiling(BigDecimal, NumberContext)}.
      */
@@ -587,18 +636,14 @@ public abstract class Presolvers {
 
             if (lowerNew != null && upperNew != null) {
                 if (lowerNew.compareTo(upperNew) > 0) {
-                    BigDecimal level = precision.common(lowerNew, upperNew);
-                    if (level != null) {
-                        Simplifier.fix(variables[i], level);
+                    if (Presolvers.fixWithinTolerance(expression, variables[i], lowerNew, upperNew, precision)) {
                         didFix = true;
                         continue;
                     }
                     Simplifier.markInfeasible(expression);
                     return false;
                 }
-                BigDecimal level = precision.common(lowerNew, upperNew);
-                if (level != null) {
-                    Simplifier.fix(variables[i], level);
+                if (Presolvers.fixWithinTolerance(expression, variables[i], lowerNew, upperNew, precision)) {
                     didFix = true;
                     continue;
                 }
@@ -710,9 +755,7 @@ public abstract class Presolvers {
         if (lowerNew != null && upperNew != null) {
 
             if (lowerNew.compareTo(upperNew) > 0) {
-                BigDecimal level = precision.common(lowerNew, upperNew);
-                if (level != null) {
-                    Simplifier.fix(variable, level);
+                if (Presolvers.fixWithinTolerance(expression, variable, lowerNew, upperNew, precision)) {
                     return true;
                 } else {
                     Simplifier.markInfeasible(expression);
@@ -720,9 +763,7 @@ public abstract class Presolvers {
                 }
             }
 
-            BigDecimal level = precision.common(lowerNew, upperNew);
-            if (level != null) {
-                Simplifier.fix(variable, level);
+            if (Presolvers.fixWithinTolerance(expression, variable, lowerNew, upperNew, precision)) {
                 return true;
             }
         }
@@ -886,20 +927,12 @@ public abstract class Presolvers {
 
         if (lowerNewA != null && upperNewA != null) {
             if (lowerNewA.compareTo(upperNewA) > 0) {
-                BigDecimal level = precision.common(lowerNewA, upperNewA);
-                if (level != null) {
-                    Simplifier.fix(variableA, level);
-                } else {
+                if (!Presolvers.fixWithinTolerance(expression, variableA, lowerNewA, upperNewA, precision)) {
                     Simplifier.markInfeasible(expression);
                     return false;
                 }
-            } else {
-                BigDecimal level = precision.common(lowerNewA, upperNewA);
-                if (level != null) {
-                    Simplifier.fix(variableA, level);
-                } else {
-                    variableA.lower(lowerNewA).upper(upperNewA);
-                }
+            } else if (!Presolvers.fixWithinTolerance(expression, variableA, lowerNewA, upperNewA, precision)) {
+                variableA.lower(lowerNewA).upper(upperNewA);
             }
         } else {
             variableA.lower(lowerNewA).upper(upperNewA);
@@ -907,20 +940,12 @@ public abstract class Presolvers {
 
         if (lowerNewB != null && upperNewB != null) {
             if (lowerNewB.compareTo(upperNewB) > 0) {
-                BigDecimal level = precision.common(lowerNewB, upperNewB);
-                if (level != null) {
-                    Simplifier.fix(variableB, level);
-                } else {
+                if (!Presolvers.fixWithinTolerance(expression, variableB, lowerNewB, upperNewB, precision)) {
                     Simplifier.markInfeasible(expression);
                     return false;
                 }
-            } else {
-                BigDecimal level = precision.common(lowerNewB, upperNewB);
-                if (level != null) {
-                    Simplifier.fix(variableB, level);
-                } else {
-                    variableB.lower(lowerNewB).upper(upperNewB);
-                }
+            } else if (!Presolvers.fixWithinTolerance(expression, variableB, lowerNewB, upperNewB, precision)) {
+                variableB.lower(lowerNewB).upper(upperNewB);
             }
         } else {
             variableB.lower(lowerNewB).upper(upperNewB);

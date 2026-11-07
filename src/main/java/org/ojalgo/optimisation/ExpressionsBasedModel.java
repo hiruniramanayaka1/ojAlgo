@@ -1329,6 +1329,7 @@ public final class ExpressionsBasedModel implements Optimisation.Model {
     private Optimisation.Sense myOptimisationSense = null;
     private final Set<IntIndex> myReferences;
     private boolean myRelaxed;
+    private boolean myScalingWarned = false;
     /**
      * A shallow copy may share complex/large data structures with other models - typically the Maps holding
      * Expression parameters.
@@ -2618,6 +2619,14 @@ public final class ExpressionsBasedModel implements Optimisation.Model {
         return myRelaxed;
     }
 
+    /**
+     * True until a scaling warning has been printed for this model. Shallow copies, such as the node models
+     * of the integer solver, never print it.
+     */
+    boolean isScalingWarningPending() {
+        return !myShallowCopy && !myScalingWarned;
+    }
+
     boolean isShallowCopy() {
         return myShallowCopy;
     }
@@ -2690,6 +2699,18 @@ public final class ExpressionsBasedModel implements Optimisation.Model {
 
     IntRowColumn toIntRowColumn(final int row, final int column) {
         return new IntRowColumn(myVariables.get(row).getIndex(), myVariables.get(column).getIndex());
+    }
+
+    /**
+     * Prints the message to standard error, unless a scaling warning is no longer pending for this model.
+     *
+     * @see #isScalingWarningPending()
+     */
+    void warnScaling(final String messagePattern, final Object... arguments) {
+        if (this.isScalingWarningPending()) {
+            myScalingWarned = true;
+            BasicLogger.error(messagePattern, arguments);
+        }
     }
 
 }
