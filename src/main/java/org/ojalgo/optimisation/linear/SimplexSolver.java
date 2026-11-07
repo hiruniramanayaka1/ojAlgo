@@ -386,6 +386,16 @@ abstract class SimplexSolver extends LinearSolver {
      */
     private static final NumberContext RATIO_RELAX = NumberContext.of(9);
     /**
+     * The number of most recent states, see {@link SimplexStore#getStateHash()}, that the dual and primal
+     * iteration loops remember, see {@link #isCycling()}.
+     */
+    private static final int RECENT_STATES = 32;
+    /**
+     * The dual and primal iteration loops end with state FAILED when more than this many of their iterations
+     * ended in a state they had recently been in, see {@link #isCycling()}.
+     */
+    private static final int REPEATED_STATES = 100;
+    /**
      * The dual iterations perturb the costs, see {@link #perturbCosts()}, once this many pivots have not
      * moved the dual objective forward. In phase 1 the limit is at least the number of constraints.
      */
@@ -660,6 +670,11 @@ abstract class SimplexSolver extends LinearSolver {
      */
     private IterDescr myIteration = null;
     /**
+     * See {@link #isCycling()} and {@link #forgetStates()}.
+     */
+    private int myNbRepeatedStates = 0;
+    private long myNbStates = 0L;
+    /**
      * Scratch storage shared between the two passes of the Harris ratio tests. Pass 1 fills these arrays for
      * every valid candidate; pass 2 reads them sequentially. {@code myRatioCacheRelaxed} is used to apply the
      * growth limit after pass 1. Sized to fit either {@code excluded.length} (dual enter test) or
@@ -675,6 +690,10 @@ abstract class SimplexSolver extends LinearSolver {
     private double[] myRatioCacheScale;
     private ColumnState[] myRatioCacheState;
     private double[] myRatioCacheTrueRatio;
+    /**
+     * The {@link #RECENT_STATES} most recent states, see {@link #isCycling()}, as a ring buffer.
+     */
+    private final long[] myRecentStates = new long[RECENT_STATES];
 
     /**
      * The simplex data structure (tableau) the algorithm operates on.
@@ -811,6 +830,14 @@ abstract class SimplexSolver extends LinearSolver {
         if (myFlipCount > 0 && this.isLogDebug()) {
             this.log("Switched bounds of {} candidates", myFlipCount);
         }
+    }
+
+    /**
+     * Called when an iteration loop starts: no states are recent, and none have been repeated.
+     */
+    private void forgetStates() {
+        myNbRepeatedStates = 0;
+        myNbStates = 0L;
     }
 
     private boolean getDualExitCandidate(final IterDescr iteration) {
@@ -970,6 +997,30 @@ abstract class SimplexSolver extends LinearSolver {
         }
 
         return retVal;
+    }
+
+    /**
+     * Called after each counted iteration of the dual and primal iteration loops. The current state, see
+     * {@link SimplexStore#getStateHash()}, is compared with the {@link #RECENT_STATES} most recent ones, and
+     * then becomes one of them.
+     *
+     * @return true if, since the loop started, more than {@link #REPEATED_STATES} iterations ended in a state
+     *         that was among the recent ones
+     */
+    private boolean isCycling() {
+
+        long hash = mySimplex.getStateHash();
+
+        for (int k = 0, limit = (int) Math.min(myNbStates, RECENT_STATES); k < limit; k++) {
+            if (myRecentStates[k] == hash) {
+                myNbRepeatedStates++;
+                break;
+            }
+        }
+
+        myRecentStates[(int) (myNbStates++ % RECENT_STATES)] = hash;
+
+        return myNbRepeatedStates > REPEATED_STATES;
     }
 
     /**
@@ -1604,7 +1655,8 @@ abstract class SimplexSolver extends LinearSolver {
 
     /**
      * If the iterations stall the costs are perturbed, see {@link #perturbCosts()}. Original costs are back
-     * in place on return, phase-1 costs remain perturbed.
+     * in place on return, phase-1 costs remain perturbed. If they cycle, see {@link #isCycling()}, the state
+     * is set to FAILED.
      */
     final void doDualIterations(final IterDescr iteration, final boolean resetEdgeWeights) {
 
@@ -1620,6 +1672,8 @@ abstract class SimplexSolver extends LinearSolver {
         boolean installed = false;
         int nbStalled = 0;
         int stallLimit = mySimplex.isPhase1() ? Math.max(STALLED_PIVOTS, mySimplex.m) : STALLED_PIVOTS;
+
+        this.forgetStates();
 
         boolean done = false;
         while (this.isIterationAllowed() && !done) {
@@ -1700,6 +1754,10 @@ abstract class SimplexSolver extends LinearSolver {
                     this.update(iteration);
 
                     this.incrementIterationsCount();
+
+                    if (this.isCycling()) {
+                        state = State.FAILED;
+                    }
                 }
 
             } else {
@@ -1723,6 +1781,9 @@ abstract class SimplexSolver extends LinearSolver {
         }
     }
 
+    /**
+     * If the iterations cycle, see {@link #isCycling()}, the state is set to FAILED.
+     */
     final void doPrimalIterations(final IterDescr iteration, final boolean resetEdgeWeights) {
 
         if (options.validate) {
@@ -1732,6 +1793,8 @@ abstract class SimplexSolver extends LinearSolver {
         if (resetEdgeWeights) {
             mySimplex.resetEdgeWeights();
         }
+
+        this.forgetStates();
 
         boolean done = false;
         while (this.isIterationAllowed() && !done) {
@@ -1767,6 +1830,10 @@ abstract class SimplexSolver extends LinearSolver {
                     myIncrementallyUpdated = true;
 
                     this.incrementIterationsCount();
+
+                    if (this.isCycling()) {
+                        state = State.FAILED;
+                    }
 
                 } else if (!myGrowthLimited) {
 

@@ -320,6 +320,53 @@ public class IntegerProblems extends OptimisationIntegerTests {
     }
 
     /**
+     * https://github.com/optimatika/ojAlgo/issues/710
+     * <p>
+     * Presolve rounds integer values: an integer variable fixed by an equality constraint, and derived bounds
+     * of integer variables. That rounding was done at the feasibility precision, 12 significant digits, and
+     * integers with more digits were moved: x = 123456789012345 was fixed at 123456789012000, max x subject
+     * to x <= 123456789012600 gave 123456789013000, and min x subject to x >= 123456789012345 gave
+     * 123456789012000. The results were OPTIMAL and passed validation, since they are equal at 12 digits.
+     */
+    @Test
+    public void testGitHub710LargeIntegers() {
+
+        NumberContext exact = NumberContext.of(16);
+
+        for (double level : new double[] { 123456789012345.0, 123456789012600.0, -123456789012345.0 }) {
+
+            ExpressionsBasedModel fixed = new ExpressionsBasedModel();
+            Variable x = fixed.newVariable("x").integer(true).weight(ONE);
+            fixed.newExpression("fixed").level(level).set(x, ONE);
+
+            ExpressionsBasedModel capped = new ExpressionsBasedModel();
+            Variable u = capped.newVariable("u").integer(true).weight(ONE);
+            capped.newExpression("capped").upper(level).set(u, ONE);
+
+            ExpressionsBasedModel floored = new ExpressionsBasedModel();
+            Variable w = floored.newVariable("w").integer(true).weight(ONE);
+            floored.newExpression("floored").lower(level).set(w, ONE);
+
+            Result resultFixed = fixed.minimise();
+            Result resultCapped = capped.maximise();
+            Result resultFloored = floored.minimise();
+
+            if (DEBUG) {
+                BasicLogger.debug("{}: fixed {}, capped {}, floored {}", level, resultFixed, resultCapped, resultFloored);
+            }
+
+            TestUtils.assertTrue(resultFixed.getState().isOptimal());
+            TestUtils.assertEquals(level, resultFixed.doubleValue(0), exact);
+
+            TestUtils.assertEquals(State.OPTIMAL, resultCapped.getState());
+            TestUtils.assertEquals(level, resultCapped.doubleValue(0), exact);
+
+            TestUtils.assertEquals(State.OPTIMAL, resultFloored.getState());
+            TestUtils.assertEquals(level, resultFloored.doubleValue(0), exact);
+        }
+    }
+
+    /**
      * https://github.com/optimatika/ojAlgo/issues/711
      * <p>
      * max 1e200 x subject to x - 1e200 y <= 1e200, x >= 0, y integer in [0, 3] (and min -1e200 x). The

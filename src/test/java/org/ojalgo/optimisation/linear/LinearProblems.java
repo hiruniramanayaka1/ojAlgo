@@ -355,6 +355,50 @@ public class LinearProblems extends OptimisationLinearTests {
     }
 
     /**
+     * Found by fuzzing with coefficients and bounds up to 1e308, while looking into
+     * https://github.com/optimatika/ojAlgo/issues/707
+     * <p>
+     * Products of such numbers overflow, and the revised simplex was left with infinite reduced costs or
+     * basic values that are not a number. In the first problem the primal iterations alternated between two
+     * bases, in the second the dual iterations went round in a cycle. The iterations were counted, but with
+     * the default iteration limit, Integer.MAX_VALUE, a solve would have taken about 15 minutes. Now the
+     * repeated states are detected, and the solve ends with state FAILED after about 100 iterations.
+     */
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
+    public void testOverflowCycle() {
+
+        Optimisation.Options options = new Optimisation.Options();
+        options.sparse = Boolean.TRUE;
+
+        LinearSolver.Builder primalCycle = LinearSolver.newGeneralBuilder(new double[] { -7.486683749795589E-4, 1.3689496021833852E301 });
+        primalCycle.equality(0.0, new double[] { -3.0901651107204555E-7, 9.975098623443677E-4 });
+        primalCycle.inequality(0.11054399030447953, new double[] { 9.726565894471063E302, 7.094893249080399E-4 });
+        primalCycle.inequality(1.0, new double[] { -4.086347150690167E306, -0.01045559678029427 });
+        primalCycle.inequality(1.0, new double[] { 4.466217439932457E-7, 6.428961651723008E305 });
+        primalCycle.lower(new double[] { 0.0, Double.NEGATIVE_INFINITY });
+        primalCycle.upper(new double[] { 0.242077359309372, Double.POSITIVE_INFINITY });
+
+        LinearSolver.Builder dualCycle = LinearSolver.newGeneralBuilder(new double[] { -4.436959560554985E306, 2.2663657742544865E307 });
+        dualCycle.inequality(0.0, new double[] { 2.182383910475976E305, -1.6818761208188305E307 });
+        dualCycle.inequality(1.0, new double[] { 0.0, 4.7230489434892127E-8 });
+        dualCycle.inequality(1.1508376262086011E300, new double[] { 3.5057930019571866E-10, 0.14011422957719283 });
+        dualCycle.lower(new double[] { 0.0, 0.0 });
+        dualCycle.upper(new double[] { Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY });
+
+        for (LinearSolver.Builder builder : new LinearSolver.Builder[] { primalCycle, dualCycle }) {
+
+            Result result = builder.build(options).solve(null);
+
+            if (DEBUG) {
+                BasicLogger.debug(result);
+            }
+
+            TestUtils.assertEquals(State.FAILED, result.getState());
+        }
+    }
+
+    /**
      * Didn't recognise this as an infeasible problem.
      */
     @Test
