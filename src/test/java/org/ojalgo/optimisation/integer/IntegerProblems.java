@@ -441,6 +441,59 @@ public class IntegerProblems extends OptimisationIntegerTests {
     }
 
     /**
+     * https://github.com/optimatika/ojAlgo/issues/711
+     * <p>
+     * Integer values beyond the range of long, about 9.2e18, failed the integrality check of validation. The
+     * integer solver discarded such solutions: max x with integer x in [0, 1e19] was reported INFEASIBLE, and
+     * so was the issue's model with x integer – max 1e200 x subject to x - 1e200 y <= 1e200, x >= 0, y in [0,
+     * 3.5], with the optimum at x = 4.5e200, y = 3.5 (x = 4e200, y = 3 with y integer too).
+     */
+    @Test
+    public void testGitHub711LargeIntegers() {
+
+        NumberContext exact = NumberContext.of(16);
+
+        for (boolean maximise : new boolean[] { false, true }) {
+
+            ExpressionsBasedModel model = new ExpressionsBasedModel();
+
+            model.newVariable("x").integer(true).lower(maximise ? ZERO : -1e19).upper(maximise ? 1e19 : ZERO).weight(ONE);
+
+            Result result = maximise ? model.maximise() : model.minimise();
+
+            if (DEBUG) {
+                BasicLogger.debug("maximise={}: {}", maximise, result);
+            }
+
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(maximise ? 1e19 : -1e19, result.doubleValue(0), exact);
+            TestUtils.assertTrue(model.validate(result));
+        }
+
+        for (boolean integerY : new boolean[] { false, true }) {
+
+            ExpressionsBasedModel model = new ExpressionsBasedModel();
+
+            Variable x = model.newVariable("x").integer(true).lower(ZERO).weight(1e200);
+            Variable y = model.newVariable("y").integer(integerY).lower(ZERO).upper(3.5);
+
+            model.newExpression("row").upper(1e200).set(x, ONE).set(y, -1e200);
+
+            Result result = model.maximise();
+
+            if (DEBUG) {
+                BasicLogger.debug("integerY={}: {}", integerY, result);
+            }
+
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(Double.POSITIVE_INFINITY, result.getValue());
+            TestUtils.assertEquals(integerY ? 4e200 : 4.5e200, result.doubleValue(0), NumberContext.of(12));
+            TestUtils.assertEquals(integerY ? 3.0 : 3.5, result.doubleValue(1), NumberContext.of(12));
+            TestUtils.assertTrue(model.validate(result));
+        }
+    }
+
+    /**
      * 20120227: Forgot to document what the problem was. Now I just check there is an optimal solution.
      */
     @Test
