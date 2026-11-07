@@ -471,6 +471,9 @@ public abstract class Presolvers {
      * largest coefficient (constraint coefficients, and objective coefficients times the contribution
      * weight). If it is not negligible there the model is badly scaled, and a warning is printed to standard
      * error, at most once per model.
+     * <p>
+     * An integer variable, with integer bounds, is fixed only if the bounds are equal or cross, and then at an
+     * integer. If the lower bound is less than the upper, there is more than one integer value to choose from.
      *
      * @return true if the variable was fixed
      */
@@ -481,6 +484,13 @@ public abstract class Presolvers {
 
         if (level == null) {
             return false;
+        }
+
+        if (variable.isInteger()) {
+            if (lower.compareTo(upper) < 0) {
+                return false;
+            }
+            level = level.setScale(0, RoundingMode.HALF_EVEN);
         }
 
         ExpressionsBasedModel model = expression.getModel();

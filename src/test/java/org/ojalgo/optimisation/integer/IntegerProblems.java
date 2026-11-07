@@ -322,6 +322,46 @@ public class IntegerProblems extends OptimisationIntegerTests {
     /**
      * https://github.com/optimatika/ojAlgo/issues/710
      * <p>
+     * N <= x <= N + 1 with integer x and N = 123456789012345. The bounds N and N + 1 are equal at the
+     * feasibility precision, 12 significant digits, and presolve fixed x at N + 0.5. With another integer
+     * variable y, rounding the bounds of x gave [N + 1, N], and the model was reported INFEASIBLE. The optimum
+     * is x = N + 1 when maximising, x = N when minimising.
+     */
+    @Test
+    public void testGitHub710LargeIntegerRange() {
+
+        NumberContext exact = NumberContext.of(16);
+
+        double level = 123456789012345.0;
+
+        for (boolean other : new boolean[] { false, true }) {
+            for (boolean maximise : new boolean[] { false, true }) {
+
+                ExpressionsBasedModel model = new ExpressionsBasedModel();
+
+                Variable x = model.newVariable("x").integer(true).lower(ZERO).weight(ONE);
+                model.newExpression("range").lower(level).upper(level + 1.0).set(x, ONE);
+                if (other) {
+                    Variable y = model.newVariable("y").integer(true).lower(ZERO).upper(3.0).weight(ONE);
+                    model.newExpression("cap").upper(2.5).set(y, ONE);
+                }
+
+                Result result = maximise ? model.maximise() : model.minimise();
+
+                if (DEBUG) {
+                    BasicLogger.debug("other={} maximise={}: {}", other, maximise, result);
+                }
+
+                TestUtils.assertEquals(State.OPTIMAL, result.getState());
+                TestUtils.assertEquals(maximise ? level + 1.0 : level, result.doubleValue(0), exact);
+                TestUtils.assertTrue(model.validate(result));
+            }
+        }
+    }
+
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/710
+     * <p>
      * Presolve rounds integer values: an integer variable fixed by an equality constraint, and derived bounds
      * of integer variables. That rounding was done at the feasibility precision, 12 significant digits, and
      * integers with more digits were moved: x = 123456789012345 was fixed at 123456789012000, max x subject
