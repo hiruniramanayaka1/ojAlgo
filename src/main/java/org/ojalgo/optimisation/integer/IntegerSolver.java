@@ -39,6 +39,7 @@ import org.ojalgo.matrix.store.R064Store;
 import org.ojalgo.netio.BasicLogger;
 import org.ojalgo.netio.CharacterRing;
 import org.ojalgo.netio.CharacterRing.RingLogger;
+import org.ojalgo.optimisation.Expression;
 import org.ojalgo.optimisation.ExpressionsBasedModel;
 import org.ojalgo.optimisation.GenericSolver;
 import org.ojalgo.optimisation.Optimisation;
@@ -216,6 +217,11 @@ public final class IntegerSolver extends GenericSolver {
     private final CutStatistics myCutStatistics;
     private final NodeStatistics myNodeStatistics = new NodeStatistics();
     private volatile boolean myOptimalityProven = false;
+    /**
+     * Set when a node problem is unbounded. Then so is the root problem, the LP relaxation, and the model is
+     * either infeasible or unbounded, see {@link #resolveUnboundedRelaxation(Optimisation.Result)}.
+     */
+    private volatile boolean myRelaxationUnbounded = false;
     private final Optimisation.Sense mySense;
     private final ModelStrategy myStrategy;
 
@@ -459,6 +465,45 @@ public final class IntegerSolver extends GenericSolver {
         }
     }
 
+    /**
+     * With an unbounded LP relaxation the model is either infeasible or unbounded: it is unbounded if there is
+     * an integer solution. If none has been found, a copy of the model without objective function is solved
+     * to find one.
+     *
+     * @return UNBOUNDED with an integer solution, INFEASIBLE if there is none, or FAILED if that could not be
+     *         determined
+     */
+    private Optimisation.Result resolveUnboundedRelaxation(final Optimisation.Result bestSolutionFound) {
+
+        if (bestSolutionFound.getState().isFeasible()) {
+            return bestSolutionFound.withState(State.UNBOUNDED);
+        }
+
+        Expression objective = myIntegerModel.objective();
+
+        if (!objective.isAnyLinearFactorNonZero() && !objective.isAnyQuadraticFactorNonZero()) {
+            return bestSolutionFound.withState(State.FAILED);
+        }
+
+        ExpressionsBasedModel feasibility = myIntegerModel.copy();
+        for (Variable variable : feasibility.getVariables()) {
+            variable.weight(null);
+        }
+        for (Expression expression : feasibility.getExpressions()) {
+            expression.weight(null);
+        }
+
+        Optimisation.Result feasible = feasibility.minimise();
+
+        if (feasible.getState().isFeasible()) {
+            return new Optimisation.Result(State.UNBOUNDED, objective.evaluate(feasible).doubleValue(), feasible);
+        } else if (feasible.getState() == State.INFEASIBLE) {
+            return bestSolutionFound.withState(State.INFEASIBLE);
+        } else {
+            return bestSolutionFound.withState(State.FAILED);
+        }
+    }
+
     private Optimisation.Result snapIntegers(final Optimisation.Result relaxed, final ModelStrategy strategy) {
 
         int nbVars = relaxed.size();
@@ -611,6 +656,10 @@ public final class IntegerSolver extends GenericSolver {
         myBoundView = null;
 
         Optimisation.Result bestSolutionFound = this.getBestResultSoFar();
+
+        if (myRelaxationUnbounded) {
+            return this.resolveUnboundedRelaxation(bestSolutionFound);
+        }
 
         if (bestSolutionFound.getState().isFeasible()) {
             if (solverNormalExit.get()) {
@@ -806,6 +855,24 @@ public final class IntegerSolver extends GenericSolver {
 
             if (nodePrinter != null && this.isLogDebug()) {
                 nodePrinter.println("Node Result: {}", nodeResult);
+            }
+
+            if (nodeResult.getState() == State.UNBOUNDED) {
+                if (nodePrinter != null && this.isLogDebug()) {
+                    nodePrinter.println("Node problem unbounded - stop the search!");
+                    IntegerSolver.flush(nodePrinter, myIntegerModel.options.logger_appender);
+                }
+
+                if (this.identifyNonIntegerVariable(nodeResult, nodeKey, strategy) < 0) {
+                    Optimisation.Result integerCandidate = this.validIntegerCandidate(nodeResult, strategy);
+                    if (integerCandidate != null) {
+                        this.markInteger(nodeKey, new Optimisation.Result(State.FEASIBLE, nodeResult.getValue(), integerCandidate), strategy);
+                    }
+                }
+
+                myRelaxationUnbounded = true;
+                nodeSolver.dispose();
+                return myNodeStatistics.failed();
             }
 
             if (!nodeResult.getState().isOptimal()) {

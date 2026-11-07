@@ -863,4 +863,89 @@ public class IntegerProblems extends OptimisationIntegerTests {
         TestUtils.assertNotEquals(result.getState(), Optimisation.State.INFEASIBLE);
     }
 
+    /**
+     * The LP relaxations of these models are unbounded, and there are integer solutions, so the models are
+     * unbounded. They were reported INFEASIBLE: the integer solver treated the unbounded root node as an
+     * infeasible node. With rational data, a model with an unbounded LP relaxation is either infeasible or
+     * unbounded (R.R. Meyer, 1974), and it is unbounded if there is an integer solution.
+     * <ul>
+     * <li>max x + y, |x - y| <= 1, x + y >= 0.5, integer x and y without bounds
+     * <li>max x, integer x >= 0
+     * <li>max x + y, x - 2y <= 0.5, x + y >= 0.3, integer x >= 0, y >= 0, where the LP solution, x = 0.5,
+     * is not an integer solution
+     * </ul>
+     */
+    @Test
+    public void testUnboundedRelaxationFeasible() {
+
+        ExpressionsBasedModel band = new ExpressionsBasedModel();
+        Variable bandX = band.newVariable("x").integer(true).weight(ONE);
+        Variable bandY = band.newVariable("y").integer(true).weight(ONE);
+        band.newExpression("d1").upper(ONE).set(bandX, ONE).set(bandY, NEG);
+        band.newExpression("d2").upper(ONE).set(bandY, ONE).set(bandX, NEG);
+        band.newExpression("sum").lower(HALF).set(bandX, ONE).set(bandY, ONE);
+
+        ExpressionsBasedModel single = new ExpressionsBasedModel();
+        single.newVariable("x").integer(true).lower(ZERO).weight(ONE);
+
+        ExpressionsBasedModel mixed = new ExpressionsBasedModel();
+        Variable mixedX = mixed.newVariable("x").integer(true).lower(ZERO).weight(ONE);
+        Variable mixedY = mixed.newVariable("y").lower(ZERO).weight(ONE);
+        mixed.newExpression("r").upper(HALF).set(mixedX, ONE).set(mixedY, TWO.negate());
+        mixed.newExpression("s").lower(0.3).set(mixedX, ONE).set(mixedY, ONE);
+
+        for (ExpressionsBasedModel model : new ExpressionsBasedModel[] { band, single, mixed }) {
+
+            Result relaxed = model.copy(true).maximise();
+            Result result = model.maximise();
+
+            if (DEBUG) {
+                BasicLogger.debug("{} -> {}", relaxed, result);
+            }
+
+            TestUtils.assertEquals(State.UNBOUNDED, relaxed.getState());
+            TestUtils.assertEquals(State.UNBOUNDED, result.getState());
+            TestUtils.assertTrue(model.validate(result));
+        }
+    }
+
+    /**
+     * The LP relaxations of these models are unbounded, but there are no integer solutions, so the models are
+     * infeasible.
+     * <ul>
+     * <li>max w, x + y = 1.5, w >= x, integer x and y in [0, 1], w >= 0
+     * <li>max x + y, x - y = z, z in [0.2, 0.4], integer x and y without bounds
+     * </ul>
+     */
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
+    public void testUnboundedRelaxationInfeasible() {
+
+        ExpressionsBasedModel parity = new ExpressionsBasedModel();
+        Variable parityX = parity.newVariable("x").integer(true).lower(ZERO).upper(ONE);
+        Variable parityY = parity.newVariable("y").integer(true).lower(ZERO).upper(ONE);
+        Variable parityW = parity.newVariable("w").lower(ZERO).weight(ONE);
+        parity.newExpression("half").level(1.5).set(parityX, ONE).set(parityY, ONE);
+        parity.newExpression("link").lower(ZERO).set(parityW, ONE).set(parityX, NEG);
+
+        ExpressionsBasedModel band = new ExpressionsBasedModel();
+        Variable bandX = band.newVariable("x").integer(true).weight(ONE);
+        Variable bandY = band.newVariable("y").integer(true).weight(ONE);
+        Variable bandZ = band.newVariable("z").lower(0.2).upper(0.4);
+        band.newExpression("difference").level(ZERO).set(bandX, ONE).set(bandY, NEG).set(bandZ, NEG);
+
+        for (ExpressionsBasedModel model : new ExpressionsBasedModel[] { parity, band }) {
+
+            Result relaxed = model.copy(true).maximise();
+            Result result = model.maximise();
+
+            if (DEBUG) {
+                BasicLogger.debug("{} -> {}", relaxed, result);
+            }
+
+            TestUtils.assertEquals(State.UNBOUNDED, relaxed.getState());
+            TestUtils.assertEquals(State.INFEASIBLE, result.getState());
+        }
+    }
+
 }
