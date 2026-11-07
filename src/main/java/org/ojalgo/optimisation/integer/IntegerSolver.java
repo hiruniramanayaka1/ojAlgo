@@ -218,8 +218,8 @@ public final class IntegerSolver extends GenericSolver {
     private final NodeStatistics myNodeStatistics = new NodeStatistics();
     private volatile boolean myOptimalityProven = false;
     /**
-     * Set when a node problem is unbounded. Then so is the root problem, the LP relaxation, and the model is
-     * either infeasible or unbounded, see {@link #resolveUnboundedRelaxation(Optimisation.Result)}.
+     * Set when the root problem, the LP relaxation, is unbounded. Then the model is either infeasible or
+     * unbounded, see {@link #resolveUnboundedRelaxation(Optimisation.Result)}.
      */
     private volatile boolean myRelaxationUnbounded = false;
     private final Optimisation.Sense mySense;
@@ -350,7 +350,7 @@ public final class IntegerSolver extends GenericSolver {
                     double v = rootResult.doubleValue(myStrategy.getIndex(i));
                     double dn = v - Math.floor(v);
                     double disp = Math.min(dn, ONE - dn);
-                    if (!myStrategy.getIntegralityTolerance().isZero(disp)) {
+                    if (!myStrategy.getIntegralityTolerance().isZero(disp) && NodeKey.isBranchable(v)) {
                         candidates[count] = i;
                         fract[count] = disp;
                         count++;
@@ -396,7 +396,8 @@ public final class IntegerSolver extends GenericSolver {
                         rootSolver.update(gi, origLower, floorVal);
                         Optimisation.Result downResult = rootSolver.solve(null);
                         boolean downOK = downResult.getState().isOptimal();
-                        boolean downInfeasible = downResult.getState().isFailure() && downResult.getState() != State.FAILED;
+                        boolean downInfeasible = downResult.getState().isFailure() && downResult.getState() != State.FAILED
+                                && downResult.getState() != State.UNBOUNDED;
                         if (downOK) {
                             double downLP = downResult.getValue();
                             double deg = Math.max(ZERO, mySense == Optimisation.Sense.MIN ? downLP - rootValue : rootValue - downLP);
@@ -411,7 +412,8 @@ public final class IntegerSolver extends GenericSolver {
                         rootSolver.update(gi, ceilVal, origUpper);
                         Optimisation.Result upResult = rootSolver.solve(null);
                         boolean upOK = upResult.getState().isOptimal();
-                        boolean upInfeasible = upResult.getState().isFailure() && upResult.getState() != State.FAILED;
+                        boolean upInfeasible = upResult.getState().isFailure() && upResult.getState() != State.FAILED
+                                && upResult.getState() != State.UNBOUNDED;
                         if (upOK) {
                             double upLP = upResult.getValue();
                             double deg = Math.max(ZERO, mySense == Optimisation.Sense.MIN ? upLP - rootValue : rootValue - upLP);
@@ -424,7 +426,8 @@ public final class IntegerSolver extends GenericSolver {
                         // Restore root bounds in the solver
                         rootSolver.update(gi, origLower, origUpper);
 
-                        // A probe that is neither optimal nor infeasible (FAILED, APPROXIMATE...) proves nothing
+                        // A probe that is neither optimal nor infeasible (FAILED, UNBOUNDED, APPROXIMATE...) proves
+                        // nothing
                         if (downInfeasible && upInfeasible) {
                             rootSolver.dispose();
                             return myNodeStatistics.infeasible();
@@ -857,7 +860,7 @@ public final class IntegerSolver extends GenericSolver {
                 nodePrinter.println("Node Result: {}", nodeResult);
             }
 
-            if (nodeResult.getState() == State.UNBOUNDED) {
+            if (nodeResult.getState() == State.UNBOUNDED && nodeKey.sequence == 0) {
                 if (nodePrinter != null && this.isLogDebug()) {
                     nodePrinter.println("Node problem unbounded - stop the search!");
                     IntegerSolver.flush(nodePrinter, myIntegerModel.options.logger_appender);
@@ -883,10 +886,11 @@ public final class IntegerSolver extends GenericSolver {
 
                 nodeSolver.dispose();
                 State nodeState = nodeResult.getState();
-                if (!nodeState.isFailure() || nodeState == State.FAILED || nodeKey.sequence == 0 && !nodeState.isValid()) {
+                if (!nodeState.isFailure() || nodeState == State.FAILED || nodeState == State.UNBOUNDED || nodeKey.sequence == 0 && !nodeState.isValid()) {
                     // Neither optimal nor infeasible (FEASIBLE, APPROXIMATE...), or the LP failed (FAILED, such as
-                    // on a singular basis): the node can neither be bounded nor pruned and the search cannot claim
-                    // optimality. Abort (the result is reported as FEASIBLE, not OPTIMAL).
+                    // on a singular basis, or UNBOUNDED while the root problem is not): the node can neither be
+                    // bounded nor pruned and the search cannot claim optimality. Abort (the result is reported as
+                    // FEASIBLE, not OPTIMAL).
                     return myNodeStatistics.failed();
                 }
                 double incumbentValue = myBestResultSoFar != null ? myBestResultSoFar.getValue() : Double.NaN;
@@ -1143,8 +1147,6 @@ public final class IntegerSolver extends GenericSolver {
         int nbVars = nodeResult.size();
         int nbInts = strategy.countIntegerVariables();
 
-        double maxDisplacement = ZERO;
-
         BigDecimal[] rounded = new BigDecimal[nbVars];
 
         for (int i = 0; i < nbInts; i++) {
@@ -1152,14 +1154,15 @@ public final class IntegerSolver extends GenericSolver {
             double value = nodeResult.doubleValue(globalIndex);
             double lower = nodeKey.getLowerBound(i);
             double upper = nodeKey.getUpperBound(i);
-            double intValue = Math.min(upper, Math.max(lower, Math.round(value)));
-            maxDisplacement = Math.max(maxDisplacement, Math.abs(intValue - value));
-            rounded[globalIndex] = BigDecimal.valueOf((long) intValue);
+            double intValue = Math.min(upper, Math.max(lower, Math.rint(value)));
+            if (!(Math.abs(intValue - value) <= QUARTER)) {
+                // Too far, or not a number
+                return;
+            }
+            rounded[globalIndex] = BigDecimal.valueOf(intValue);
         }
 
-        if (maxDisplacement > QUARTER) {
-            return;
-        } else if (nbVars > nbInts) {
+        if (nbVars > nbInts) {
             for (int j = 0; j < nbVars; j++) {
                 if (rounded[j] == null) {
                     rounded[j] = BigDecimal.valueOf(nodeResult.doubleValue(j));

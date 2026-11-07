@@ -1655,8 +1655,8 @@ abstract class SimplexSolver extends LinearSolver {
 
     /**
      * If the iterations stall the costs are perturbed, see {@link #perturbCosts()}. Original costs are back
-     * in place on return, phase-1 costs remain perturbed. If they cycle, see {@link #isCycling()}, the state
-     * is set to FAILED.
+     * in place on return, phase-1 costs remain perturbed. If they cycle, see {@link #isCycling()}, the costs
+     * are perturbed, and if they still cycle the state is set to FAILED.
      */
     final void doDualIterations(final IterDescr iteration, final boolean resetEdgeWeights) {
 
@@ -1756,7 +1756,13 @@ abstract class SimplexSolver extends LinearSolver {
                     this.incrementIterationsCount();
 
                     if (this.isCycling()) {
-                        state = State.FAILED;
+                        if (perturbed) {
+                            state = State.FAILED;
+                        } else {
+                            // Perturb the costs, at the next iteration, before giving up
+                            nbStalled = stallLimit;
+                            this.forgetStates();
+                        }
                     }
                 }
 

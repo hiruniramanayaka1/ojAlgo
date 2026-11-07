@@ -466,8 +466,8 @@ public abstract class Presolvers {
     }
 
     /**
-     * Fixes the variable at the common level of the lower and upper bounds, if they are equal at the given
-     * precision. When the bounds differ, the discarded range is also measured in the units of the variable's
+     * Fixes the variable at the common level of the lower and upper bounds, if there are both and they are
+     * equal at the given precision. When the bounds differ, the discarded range is also measured in the units of the variable's
      * largest coefficient (constraint coefficients, and objective coefficients times the contribution
      * weight). If it is not negligible there the model is badly scaled, and a warning is printed to standard
      * error, at most once per model.
@@ -479,6 +479,10 @@ public abstract class Presolvers {
      */
     private static boolean fixWithinTolerance(final Expression expression, final Variable variable, final BigDecimal lower, final BigDecimal upper,
             final NumberContext precision) {
+
+        if (lower == null || upper == null) {
+            return false;
+        }
 
         BigDecimal level = precision.common(lower, upper);
 
@@ -653,19 +657,14 @@ public abstract class Presolvers {
                 }
             }
 
-            if (lowerNew != null && upperNew != null) {
-                if (lowerNew.compareTo(upperNew) > 0) {
-                    if (Presolvers.fixWithinTolerance(expression, variables[i], lowerNew, upperNew, precision)) {
-                        didFix = true;
-                        continue;
-                    }
-                    Simplifier.markInfeasible(expression);
-                    return false;
-                }
-                if (Presolvers.fixWithinTolerance(expression, variables[i], lowerNew, upperNew, precision)) {
-                    didFix = true;
-                    continue;
-                }
+            if (Presolvers.fixWithinTolerance(expression, variables[i], lowerNew, upperNew, precision)) {
+                didFix = true;
+                continue;
+            }
+
+            if (lowerNew != null && upperNew != null && lowerNew.compareTo(upperNew) > 0) {
+                Simplifier.markInfeasible(expression);
+                return false;
             }
 
             variables[i].lower(lowerNew).upper(upperNew);
@@ -771,20 +770,13 @@ public abstract class Presolvers {
             upperNew = Presolvers.floor(upperNew, precision);
         }
 
-        if (lowerNew != null && upperNew != null) {
+        if (Presolvers.fixWithinTolerance(expression, variable, lowerNew, upperNew, precision)) {
+            return true;
+        }
 
-            if (lowerNew.compareTo(upperNew) > 0) {
-                if (Presolvers.fixWithinTolerance(expression, variable, lowerNew, upperNew, precision)) {
-                    return true;
-                } else {
-                    Simplifier.markInfeasible(expression);
-                    return false;
-                }
-            }
-
-            if (Presolvers.fixWithinTolerance(expression, variable, lowerNew, upperNew, precision)) {
-                return true;
-            }
+        if (lowerNew != null && upperNew != null && lowerNew.compareTo(upperNew) > 0) {
+            Simplifier.markInfeasible(expression);
+            return false;
         }
 
         variable.lower(lowerNew).upper(upperNew);
@@ -944,29 +936,19 @@ public abstract class Presolvers {
             }
         }
 
-        if (lowerNewA != null && upperNewA != null) {
-            if (lowerNewA.compareTo(upperNewA) > 0) {
-                if (!Presolvers.fixWithinTolerance(expression, variableA, lowerNewA, upperNewA, precision)) {
-                    Simplifier.markInfeasible(expression);
-                    return false;
-                }
-            } else if (!Presolvers.fixWithinTolerance(expression, variableA, lowerNewA, upperNewA, precision)) {
-                variableA.lower(lowerNewA).upper(upperNewA);
+        if (!Presolvers.fixWithinTolerance(expression, variableA, lowerNewA, upperNewA, precision)) {
+            if (lowerNewA != null && upperNewA != null && lowerNewA.compareTo(upperNewA) > 0) {
+                Simplifier.markInfeasible(expression);
+                return false;
             }
-        } else {
             variableA.lower(lowerNewA).upper(upperNewA);
         }
 
-        if (lowerNewB != null && upperNewB != null) {
-            if (lowerNewB.compareTo(upperNewB) > 0) {
-                if (!Presolvers.fixWithinTolerance(expression, variableB, lowerNewB, upperNewB, precision)) {
-                    Simplifier.markInfeasible(expression);
-                    return false;
-                }
-            } else if (!Presolvers.fixWithinTolerance(expression, variableB, lowerNewB, upperNewB, precision)) {
-                variableB.lower(lowerNewB).upper(upperNewB);
+        if (!Presolvers.fixWithinTolerance(expression, variableB, lowerNewB, upperNewB, precision)) {
+            if (lowerNewB != null && upperNewB != null && lowerNewB.compareTo(upperNewB) > 0) {
+                Simplifier.markInfeasible(expression);
+                return false;
             }
-        } else {
             variableB.lower(lowerNewB).upper(upperNewB);
         }
 
