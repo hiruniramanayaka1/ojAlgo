@@ -365,13 +365,15 @@ abstract class SimplexSolver extends LinearSolver {
      */
     private static final NumberContext PIVOT = NumberContext.of(6);
     /**
-     * A pivot must also be large relative to the largest element of the pivot row (dual simplex) or column
-     * (primal simplex), 1e-9 relative, no absolute tolerance. Smaller elements neither limit the step nor
-     * become pivots, and in the dual simplex they count as zero. Without a regular dual candidate the basis
-     * is refactorised (if it has been updated) and the iteration repeated, before anything else is done (see
-     * {@link SimplexStore#refactorise()}). If this rejects all the primal rows that bound the step, the basis
-     * is refactorised the same way, and if it had not been updated those rows are accepted after all: this
-     * limit never turns a bounded step into an unbounded one.
+     * A pivot must also be large relative to the largest element of the pivot column (primal simplex), or
+     * relative to the largest element among the dual candidates, those that move the leaving variable towards
+     * its bound (dual simplex), 1e-9 relative, no absolute tolerance. A dual candidate whose element is small
+     * by {@link #PIVOT} must be large relative to the largest element of the whole pivot row. Smaller
+     * elements neither limit the step nor become pivots, and in the dual simplex they count as zero. Without
+     * a regular dual candidate the basis is refactorised (if it has been updated) and the iteration repeated,
+     * before anything else is done (see {@link SimplexStore#refactorise()}). If this rejects all the primal
+     * rows that bound the step, the basis is refactorised the same way, and if it had not been updated those
+     * rows are accepted after all: this limit never turns a bounded step into an unbounded one.
      */
     private static final NumberContext PIVOT_GROWTH = NumberContext.ofPrecision(10);
     /**
@@ -1210,11 +1212,12 @@ abstract class SimplexSolver extends LinearSolver {
 
         this.ensureRatioCacheCapacity(excluded.length);
 
-        // Pass 1: find the largest element of the row, and cache the candidates that move the exit variable
-        // towards its bound (idx, scale, relaxed ratio, trueRatio, state), where the relaxed ratio is (gap +
-        // tolerance) / |denom|.
+        // Pass 1: cache the candidates that move the exit variable towards its bound (idx, scale, relaxed
+        // ratio, trueRatio, state), where the relaxed ratio is (gap + tolerance) / |denom|, and find the
+        // largest of their elements as well as the largest element of the row.
         int cachedCount = 0;
         double largest = ZERO;
+        double largestInRow = ZERO;
 
         for (int k = 0; k < nbCandidates; k++) {
             int je = candidates != null ? candidates[k] : k;
@@ -1230,7 +1233,7 @@ abstract class SimplexSolver extends LinearSolver {
 
             double denom = mySimplex.getCurrentElement(exit, je);
             double scale = Math.abs(denom);
-            largest = Math.max(largest, scale);
+            largestInRow = Math.max(largestInRow, scale);
             if (denom == ZERO) {
                 continue;
             }
@@ -1277,6 +1280,8 @@ abstract class SimplexSolver extends LinearSolver {
                 this.log(1, "{}({}) relaxed = {}", j, je, relaxed);
             }
 
+            largest = Math.max(largest, scale);
+
             myRatioCacheIdx[cachedCount] = je;
             myRatioCacheRelaxed[cachedCount] = relaxed;
             myRatioCacheScale[cachedCount] = scale;
@@ -1295,7 +1300,7 @@ abstract class SimplexSolver extends LinearSolver {
         }
         int nbUsable = nbRegular;
         for (int k = nbRegular; k < cachedCount; k++) {
-            if (!PIVOT_GROWTH.isSmall(largest, myRatioCacheScale[k])) {
+            if (!PIVOT_GROWTH.isSmall(largestInRow, myRatioCacheScale[k])) {
                 this.swapRatioCache(k, nbUsable++);
             }
         }

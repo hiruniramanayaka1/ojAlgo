@@ -224,6 +224,71 @@ public class LinearProblems extends OptimisationLinearTests {
         }
     }
 
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/713
+     * <p>
+     * Minimise x subject to x - k y = 0, y - k z = 0 and z >= 1000, with x, y and z free. The solution is z =
+     * 1000, y = 1000 k and x = 1000 k^2. The last dual iteration has the artificial of the first row leaving
+     * at 1000 k^2, and the only candidate that can enter is x, with element 1. The row also has the element
+     * -k^2 of the slack, which is at its lower bound and can not enter. Judged relative to that element, x
+     * was rejected as too small, and the result was INFEASIBLE for k >= 1E5.
+     */
+    @Test
+    public void testGitHub713() {
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+            for (double k : new double[] { 1E4, 1E5, 1E6, 1E7 }) {
+
+                Optimisation.Options options = new Optimisation.Options();
+                options.sparse = sparse;
+
+                LinearSolver.Builder builder = LinearSolver.newBuilder(1.0, 0.0, 0.0);
+                builder.equality(0.0, 1.0, -k, 0.0);
+                builder.equality(0.0, 0.0, 1.0, -k);
+                builder.inequality(-1000.0, 0.0, 0.0, -1.0);
+                builder.lower(Double.NEGATIVE_INFINITY);
+                builder.upper(Double.POSITIVE_INFINITY);
+
+                Result result = builder.build(options).solve(null);
+
+                TestUtils.assertEquals(State.OPTIMAL, result.getState());
+                TestUtils.assertEquals(1000.0 * k * k, result.doubleValue(0), ACCURACY);
+                TestUtils.assertEquals(1000.0 * k, result.doubleValue(1), ACCURACY);
+                TestUtils.assertEquals(1000.0, result.doubleValue(2), ACCURACY);
+                TestUtils.assertEquals(1000.0 * k * k, result.getValue(), ACCURACY);
+            }
+        }
+    }
+
+    /**
+     * Found when fixing https://github.com/optimatika/ojAlgo/issues/713
+     * <p>
+     * An infeasible LP with small integer coefficients. On the dense tableau the leaving row ends up with
+     * rounding residue, 2.8E-17, as the elements of the candidates that can enter, while the slack that can
+     * not enter has the element 1/3. Those residues must count as zero, also when they are the largest
+     * elements among the candidates. Pivoting on one gave values around 1E19 and OPTIMAL.
+     */
+    @Test
+    public void testGitHub713RoundingResidue() {
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+
+            Optimisation.Options options = new Optimisation.Options();
+            options.sparse = sparse;
+
+            LinearSolver.Builder builder = LinearSolver.newBuilder(0.0, 7.0, 8.0, 1.0, 0.0, 3.0);
+            builder.inequality(-1000.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0);
+            builder.inequality(0.0, 8.0, 0.0, 0.0, 9.0, -2.0, -2.0);
+            builder.equality(1000.0, 7.0, -1.0, 9.0, 7.0, -8.0, 2.0);
+            builder.lower(0.0);
+            builder.upper(9.0, 2.0, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY);
+
+            Result result = builder.build(options).solve(null);
+
+            TestUtils.assertEquals(State.INFEASIBLE, result.getState());
+        }
+    }
+
     @Test
     public void testMath286() {
 
