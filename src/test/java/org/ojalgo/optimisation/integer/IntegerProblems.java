@@ -547,6 +547,41 @@ public class IntegerProblems extends OptimisationIntegerTests {
     }
 
     /**
+     * https://github.com/optimatika/ojAlgo/issues/714
+     * <p>
+     * max x - y with x free or x >= 0, binary y, and optionally a redundant constraint y <= 10. x = t, y = 0
+     * is feasible for every t, so the model is unbounded, but it was reported INFEASIBLE.
+     */
+    @Test
+    public void testGitHub714() {
+
+        for (boolean lowerOnX : new boolean[] { false, true }) {
+            for (boolean withRow : new boolean[] { false, true }) {
+
+                ExpressionsBasedModel model = new ExpressionsBasedModel();
+
+                Variable x = model.newVariable("x").weight(ONE);
+                if (lowerOnX) {
+                    x.lower(ZERO);
+                }
+                Variable y = model.newVariable("y").binary().weight(NEG);
+                if (withRow) {
+                    model.newExpression("row").upper(TEN).set(y, ONE);
+                }
+
+                Result result = model.maximise();
+
+                if (DEBUG) {
+                    BasicLogger.debug("lowerOnX={} withRow={}: {}", lowerOnX, withRow, result);
+                }
+
+                TestUtils.assertEquals(State.UNBOUNDED, result.getState());
+                TestUtils.assertTrue(model.validate(result));
+            }
+        }
+    }
+
+    /**
      * 20120227: Forgot to document what the problem was. Now I just check there is an optimal solution.
      */
     @Test
