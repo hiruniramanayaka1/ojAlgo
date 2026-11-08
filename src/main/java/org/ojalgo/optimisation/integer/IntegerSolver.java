@@ -412,8 +412,7 @@ public final class IntegerSolver extends GenericSolver {
                         rootSolver.update(gi, ceilVal, origUpper);
                         Optimisation.Result upResult = rootSolver.solve(null);
                         boolean upOK = upResult.getState().isOptimal();
-                        boolean upInfeasible = upResult.getState().isFailure() && upResult.getState() != State.FAILED
-                                && upResult.getState() != State.UNBOUNDED;
+                        boolean upInfeasible = upResult.getState().isFailure() && upResult.getState() != State.FAILED && upResult.getState() != State.UNBOUNDED;
                         if (upOK) {
                             double upLP = upResult.getValue();
                             double deg = Math.max(ZERO, mySense == Optimisation.Sense.MIN ? upLP - rootValue : rootValue - upLP);
@@ -469,9 +468,9 @@ public final class IntegerSolver extends GenericSolver {
     }
 
     /**
-     * With an unbounded LP relaxation the model is either infeasible or unbounded: it is unbounded if there is
-     * an integer solution. If none has been found, a copy of the model without objective function is solved
-     * to find one.
+     * With an unbounded LP relaxation the model is either infeasible or unbounded: it is unbounded if there
+     * is an integer solution. If none has been found, a copy of the model without objective function is
+     * solved to find one.
      *
      * @return UNBOUNDED with an integer solution, INFEASIBLE if there is none, or FAILED if that could not be
      *         determined

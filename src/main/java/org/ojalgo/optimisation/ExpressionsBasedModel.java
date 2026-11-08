@@ -1548,6 +1548,10 @@ public final class ExpressionsBasedModel implements Optimisation.Model {
         return myVariables.size();
     }
 
+    public double density() {
+        return 0.0;
+    }
+
     /**
      * Counts variables and expressions of different categories.
      */

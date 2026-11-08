@@ -324,8 +324,8 @@ public class IntegerProblems extends OptimisationIntegerTests {
      * <p>
      * N <= x <= N + 1 with integer x and N = 123456789012345. The bounds N and N + 1 are equal at the
      * feasibility precision, 12 significant digits, and presolve fixed x at N + 0.5. With another integer
-     * variable y, rounding the bounds of x gave [N + 1, N], and the model was reported INFEASIBLE. The optimum
-     * is x = N + 1 when maximising, x = N when minimising.
+     * variable y, rounding the bounds of x gave [N + 1, N], and the model was reported INFEASIBLE. The
+     * optimum is x = N + 1 when maximising, x = N when minimising.
      */
     @Test
     public void testGitHub710LargeIntegerRange() {
@@ -490,6 +490,59 @@ public class IntegerProblems extends OptimisationIntegerTests {
             TestUtils.assertEquals(integerY ? 4e200 : 4.5e200, result.doubleValue(0), NumberContext.of(12));
             TestUtils.assertEquals(integerY ? 3.0 : 3.5, result.doubleValue(1), NumberContext.of(12));
             TestUtils.assertTrue(model.validate(result));
+        }
+    }
+
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/712
+     * <p>
+     * In the issue's model a node with the optimum in its subtree was pruned as infeasible. After a cut
+     * round, node presolve fixed a continuous variable at the midpoint of a range within the feasibility
+     * tolerance, [0, 2.8e-10], and an equality constraint carried that to another continuous variable: 60 +
+     * 1.4e-10 instead of 60. A constraint with that variable fixed, and only integer variables left, had its
+     * limits rounded exactly to multiples of the integer step, 0.625: -6.0000000000139 steps became [-6, -7],
+     * and the node was INFEASIBLE.
+     * <p>
+     * Here 0.0625 y - 0.625 a - 1.25 b - 2.5 c = 0 with binary a, b, c and y = 60 + 1e-10 (fixed directly, or
+     * by presolve as in the issue). The only solution is a = 0, b = c = 1, but the model was reported
+     * INFEASIBLE.
+     */
+    @Test
+    public void testGitHub712() {
+
+        for (boolean presolved : new boolean[] { false, true }) {
+            for (boolean maximise : new boolean[] { false, true }) {
+
+                ExpressionsBasedModel model = new ExpressionsBasedModel();
+
+                Variable a = model.newVariable("a").binary().weight(ONE);
+                Variable b = model.newVariable("b").binary().weight(ONE);
+                Variable c = model.newVariable("c").binary().weight(ONE);
+                Variable y = model.newVariable("y").lower(ZERO).upper(100.0);
+
+                if (presolved) {
+                    Variable x = model.newVariable("x").lower(ZERO).upper(30.0);
+                    model.newExpression("tiny").upper(5e-11).set(x, 0.36);
+                    model.newExpression("link").level(3.75).set(y, 0.0625).set(x, -0.0625);
+                } else {
+                    y.level(60.0000000001);
+                }
+
+                model.newExpression("steps").level(ZERO).set(y, 0.0625).set(a, -0.625).set(b, -1.25).set(c, -2.5);
+
+                Result result = maximise ? model.maximise() : model.minimise();
+
+                if (DEBUG) {
+                    BasicLogger.debug("presolved={} maximise={}: {}", presolved, maximise, result);
+                }
+
+                TestUtils.assertEquals(State.OPTIMAL, result.getState());
+                TestUtils.assertEquals(2.0, result.getValue(), NumberContext.of(12));
+                TestUtils.assertEquals(0.0, result.doubleValue(0), NumberContext.of(12));
+                TestUtils.assertEquals(1.0, result.doubleValue(1), NumberContext.of(12));
+                TestUtils.assertEquals(1.0, result.doubleValue(2), NumberContext.of(12));
+                TestUtils.assertTrue(model.validate(result));
+            }
         }
     }
 
@@ -964,8 +1017,8 @@ public class IntegerProblems extends OptimisationIntegerTests {
      * <ul>
      * <li>max x + y, |x - y| <= 1, x + y >= 0.5, integer x and y without bounds
      * <li>max x, integer x >= 0
-     * <li>max x + y, x - 2y <= 0.5, x + y >= 0.3, integer x >= 0, y >= 0, where the LP solution, x = 0.5,
-     * is not an integer solution
+     * <li>max x + y, x - 2y <= 0.5, x + y >= 0.3, integer x >= 0, y >= 0, where the LP solution, x = 0.5, is
+     * not an integer solution
      * </ul>
      */
     @Test
