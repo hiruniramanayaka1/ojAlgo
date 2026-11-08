@@ -361,9 +361,16 @@ abstract class SimplexSolver extends LinearSolver {
     /**
      * Elements of the pivot row (dual simplex) or column (primal simplex) this small are not pivots. In the
      * dual simplex such an element still enters, if there are no others, when together with the other small
-     * elements it can remove the infeasibility, see {@link #judgeInfeasibility(ExitInfo)}.
+     * elements it can remove the infeasibility, see {@link #judgeInfeasibility(ExitInfo)}. In the primal
+     * simplex such an element still bounds a step of (almost) zero length, if no other element bounds the
+     * step, see {@link #PIVOT_GROWTH}.
      */
     private static final NumberContext PIVOT = NumberContext.of(6);
+    /**
+     * Elements of the primal pivot column smaller than this never bound the step, see {@link #PIVOT_GROWTH}.
+     * {@link SparseDecomposition} considers a basis with a smaller pivot singular.
+     */
+    private static final double PIVOT_FLOOR = 1E-11;
     /**
      * A pivot must also be large relative to the largest element of the pivot column (primal simplex), or
      * relative to the largest element among the dual candidates, those that move the leaving variable towards
@@ -371,9 +378,12 @@ abstract class SimplexSolver extends LinearSolver {
      * by {@link #PIVOT} must be large relative to the largest element of the whole pivot row. Smaller
      * elements neither limit the step nor become pivots, and in the dual simplex they count as zero. Without
      * a regular dual candidate the basis is refactorised (if it has been updated) and the iteration repeated,
-     * before anything else is done (see {@link SimplexStore#refactorise()}). If this rejects all the primal
-     * rows that bound the step, the basis is refactorised the same way, and if it had not been updated those
-     * rows are accepted after all: this limit never turns a bounded step into an unbounded one.
+     * before anything else is done (see {@link SimplexStore#refactorise()}). If this or {@link #PIVOT}
+     * rejects all the primal rows that bound the step, the basis is refactorised the same way, and if it had
+     * not been updated those rows are accepted after all. A row with an element small by {@link #PIVOT} is
+     * accepted only if its element is not small by this as well, not smaller than {@link #PIVOT_FLOOR}, and
+     * the step it allows (negative if its basic variable is already past the bound it exits to) is within the
+     * {@link #RATIO_RELAX} tolerance of zero.
      */
     private static final NumberContext PIVOT_GROWTH = NumberContext.ofPrecision(10);
     /**
@@ -654,11 +664,6 @@ abstract class SimplexSolver extends LinearSolver {
      */
     private int myFlipCount = 0;
     /**
-     * Set by {@link #testPrimalExitRatio}: the step is unbounded only because {@link #PIVOT_GROWTH} rejected
-     * the rows that bound it.
-     */
-    private boolean myGrowthLimited = false;
-    /**
      * The values of the basic variables have been updated by primal iterations, or for variables that
      * switched bounds in dual iterations, since they were last recomputed, see
      * {@link #isRecomputedInfeasible()}.
@@ -676,6 +681,11 @@ abstract class SimplexSolver extends LinearSolver {
      */
     private int myNbRepeatedStates = 0;
     private long myNbStates = 0L;
+    /**
+     * Set by {@link #testPrimalExitRatio}: the step is unbounded only because {@link #PIVOT} or
+     * {@link #PIVOT_GROWTH} rejected rows that bound it, rows that are accepted when the test is not strict.
+     */
+    private boolean myPivotLimited = false;
     /**
      * Scratch storage shared between the two passes of the Harris ratio tests. Pass 1 fills these arrays for
      * every valid candidate; pass 2 reads them sequentially. {@code myRatioCacheRelaxed} is used to apply the
@@ -1328,9 +1338,10 @@ abstract class SimplexSolver extends LinearSolver {
     }
 
     /**
-     * @param limitGrowth Whether to apply {@link #PIVOT_GROWTH}
+     * @param strict true: rows with elements small by {@link #PIVOT} or by {@link #PIVOT_GROWTH} do not bound
+     *               the step; false: some of them do, see {@link #PIVOT_GROWTH}
      */
-    private boolean testPrimalExitRatio(final IterDescr iteration, final boolean limitGrowth) {
+    private boolean testPrimalExitRatio(final IterDescr iteration, final boolean strict) {
 
         if (this.isLogDebug()) {
             this.log();
@@ -1362,7 +1373,7 @@ abstract class SimplexSolver extends LinearSolver {
             double denom = mySimplex.getCurrentElement(ji, enter);
             double scale = Math.abs(denom);
             largest = Math.max(largest, scale);
-            if (PIVOT.isZero(denom)) {
+            if (denom == ZERO) {
                 continue;
             }
 
@@ -1404,15 +1415,28 @@ abstract class SimplexSolver extends LinearSolver {
             cachedCount++;
         }
 
-        // Keep the cached candidates that pass the growth limit (relative to the largest element of the
-        // column), and compute the relaxed minimum theta_max over them, capped at the entering variable's range.
+        // Keep the cached candidates that pass the pivot limits (PIVOT absolute, PIVOT_GROWTH relative to the
+        // largest element of the column), and compute the relaxed minimum theta_max over them, capped at the
+        // entering variable's range.
         double thetaMax = range;
         int nbKept = 0;
         boolean rejectedBounding = false;
 
         for (int k = 0; k < cachedCount; k++) {
             double relaxed = myRatioCacheRelaxed[k];
-            if (limitGrowth && PIVOT_GROWTH.isSmall(largest, myRatioCacheScale[k])) {
+            double scale = myRatioCacheScale[k];
+            boolean small = PIVOT.isZero(scale);
+            boolean growth = PIVOT_GROWTH.isSmall(largest, scale);
+            if (small) {
+                // The step, negative if the exit variable is already past the bound it exits to (gaps are >= 0)
+                double infeasibility = mySimplex.getInfeasibility(myRatioCacheIdx[k]);
+                double past = myRatioCacheExitDirection[k] ? infeasibility : -infeasibility;
+                double step = myRatioCacheTrueRatio[k] - past / scale;
+                if (growth || scale < PIVOT_FLOOR || Math.abs(step) > tolerance) {
+                    continue;
+                }
+            }
+            if (strict && (small || growth)) {
                 rejectedBounding |= Double.isFinite(relaxed);
                 continue;
             }
@@ -1425,7 +1449,7 @@ abstract class SimplexSolver extends LinearSolver {
             myRatioCacheExitDirection[nbKept] = myRatioCacheExitDirection[k];
             nbKept++;
         }
-        myGrowthLimited = rejectedBounding && !Double.isFinite(thetaMax);
+        myPivotLimited = rejectedBounding && !Double.isFinite(thetaMax);
 
         if (thetaMax >= range) {
 
@@ -1821,7 +1845,7 @@ abstract class SimplexSolver extends LinearSolver {
                 mySimplex.calculatePrimalDirection(iteration.enter);
 
                 boolean bounded = this.testPrimalExitRatio(iteration, true);
-                if (!bounded && myGrowthLimited && !mySimplex.refactorise()) {
+                if (!bounded && myPivotLimited && !mySimplex.refactorise()) {
                     bounded = this.testPrimalExitRatio(iteration, false);
                 }
 
@@ -1846,7 +1870,7 @@ abstract class SimplexSolver extends LinearSolver {
                         state = State.FAILED;
                     }
 
-                } else if (!myGrowthLimited) {
+                } else if (!myPivotLimited) {
 
                     state = State.UNBOUNDED;
                 }

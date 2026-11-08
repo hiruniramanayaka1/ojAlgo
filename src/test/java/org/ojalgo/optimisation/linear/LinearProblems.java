@@ -56,6 +56,54 @@ public class LinearProblems extends OptimisationLinearTests {
     private static final NumberContext ACCURACY = NumberContext.of(7, 6);
 
     /**
+     * Minimise c x subject to the rows (equalities or <=) and the bounds, with both stores. The result must
+     * be UNBOUNDED, with a solution that satisfies the rows and the bounds (1E-9 relative).
+     */
+    private static void assertUnboundedAndFeasible(final double[] c, final double[][] rows, final double[] rhs, final boolean[] eq, final double[] lower,
+            final double[] upper) {
+
+        double tolerance = 1E-9;
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+
+            Optimisation.Options options = new Optimisation.Options();
+            options.sparse = sparse;
+
+            LinearSolver.Builder builder = LinearSolver.newBuilder(c);
+            for (int i = 0; i < rows.length; i++) {
+                if (eq[i]) {
+                    builder.equality(rhs[i], rows[i]);
+                } else {
+                    builder.inequality(rhs[i], rows[i]);
+                }
+            }
+            builder.lower(lower);
+            builder.upper(upper);
+
+            Result result = builder.build(options).solve(null);
+
+            TestUtils.assertEquals(State.UNBOUNDED, result.getState());
+
+            for (int j = 0; j < c.length; j++) {
+                double x = result.doubleValue(j);
+                double margin = tolerance * (1.0 + Math.abs(x));
+                TestUtils.assertTrue("x" + j + " = " + x, lower[j] - margin <= x && x <= upper[j] + margin);
+            }
+
+            for (int i = 0; i < rows.length; i++) {
+                double activity = 0.0;
+                double magnitude = 1.0 + Math.abs(rhs[i]);
+                for (int j = 0; j < c.length; j++) {
+                    activity += rows[i][j] * result.doubleValue(j);
+                    magnitude += Math.abs(rows[i][j] * result.doubleValue(j));
+                }
+                double violation = eq[i] ? Math.abs(activity - rhs[i]) : activity - rhs[i];
+                TestUtils.assertTrue("row " + i + " = " + activity, violation <= tolerance * magnitude);
+            }
+        }
+    }
+
+    /**
      * https://github.com/optimatika/ojAlgo/issues/546
      */
     static OptimisationCase makeGitHub546() {
@@ -287,6 +335,112 @@ public class LinearProblems extends OptimisationLinearTests {
 
             TestUtils.assertEquals(State.INFEASIBLE, result.getState());
         }
+    }
+
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/715
+     * <p>
+     * Minimise x subject to a x <= 0, with x free and a < 0. The solution is x = 0. When x enters, the only
+     * row that bounds it has the element a. For |a| below the absolute pivot tolerance, 5E-7, that row was
+     * rejected, and the result was UNBOUNDED.
+     */
+    @Test
+    public void testGitHub715() {
+
+        double[] coefficients = { -1.0, -Math.scalb(1.0, -20), -Math.scalb(1.0, -21), -1E-8, -1E-10 };
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+            for (double a : coefficients) {
+
+                Optimisation.Options options = new Optimisation.Options();
+                options.sparse = sparse;
+
+                LinearSolver.Builder builder = LinearSolver.newBuilder(1.0);
+                builder.inequality(0.0, a);
+                builder.lower(Double.NEGATIVE_INFINITY);
+                builder.upper(Double.POSITIVE_INFINITY);
+
+                Result result = builder.build(options).solve(null);
+
+                TestUtils.assertEquals(State.OPTIMAL, result.getState());
+                TestUtils.assertEquals(0.0, result.doubleValue(0), ACCURACY);
+                TestUtils.assertEquals(0.0, result.getValue(), ACCURACY);
+            }
+        }
+    }
+
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/715
+     * <p>
+     * The same through {@link ExpressionsBasedModel}: minimise x subject to -a x + y <= 0, y + w >= 0 and y -
+     * w >= 0, with x, y and w free. The solution is x = y = w = 0. Presolve can not bound x, and after the
+     * row scaling x's element in the first row was still below the absolute pivot tolerance for a <= 1E-11.
+     * The result was UNBOUNDED.
+     */
+    @Test
+    public void testGitHub715Model() {
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+            for (double a : new double[] { 1E-6, 1E-9, 1E-11, 1E-12 }) {
+
+                ExpressionsBasedModel model = new ExpressionsBasedModel();
+                Variable x = model.newVariable("x").weight(1.0);
+                Variable y = model.newVariable("y");
+                Variable w = model.newVariable("w");
+                model.newExpression("r1").set(x, -a).set(y, 1.0).upper(0.0);
+                model.newExpression("r2").set(y, 1.0).set(w, 1.0).lower(0.0);
+                model.newExpression("r3").set(y, 1.0).set(w, -1.0).lower(0.0);
+                model.options.sparse = sparse;
+
+                Result result = model.minimise();
+
+                TestUtils.assertEquals(State.OPTIMAL, result.getState());
+                TestUtils.assertEquals(0.0, result.doubleValue(0), ACCURACY);
+                TestUtils.assertEquals(0.0, result.getValue(), ACCURACY);
+                TestUtils.assertTrue(model.validate(result));
+            }
+        }
+    }
+
+    /**
+     * Found when fixing https://github.com/optimatika/ojAlgo/issues/715
+     * <p>
+     * Three unbounded LPs where the primal ratio test, having rejected the rows that bound the step for their
+     * small elements, could still pivot on one of them:
+     * <ol>
+     * <li>The basic variable of that row is already 6E-14 below its bound. Pivoting on the element, 1.6E-10,
+     * moved the entering variable back by 4E-4, past its own bound. The result was INFEASIBLE.
+     * <li>The element is 6.9E-9 and the step 9E15. A basic variable whose element was too small to count went
+     * from 0.013 to 1386, past its upper bound 7.8.
+     * <li>The element is 2.4E-14 and the step zero, but on the dense tableau the rounding error in the row's
+     * right hand side, divided by the element, moved the entering variable by 1E6.
+     * </ol>
+     */
+    @Test
+    public void testGitHub715SmallPivotSteps() {
+
+        double inf = Double.POSITIVE_INFINITY;
+
+        LinearProblems.assertUnboundedAndFeasible(new double[] { -590.6046954963886, -2.506369230745158E-10, -0.001331642229264097 },
+                new double[][] { { 9.57551596915589E-9, 22029.767467885635, 0.0 }, { 1.506984893827462E8, -0.010579311844792747, -2453702.9919798137 },
+                        { 0.0, 1.53725979802288E-4, 0.0 } },
+                new double[] { 0.0, 1000.0, 0.0 }, new boolean[] { false, false, false }, new double[] { -0.020548941513589505, 0.0, 0.0 },
+                new double[] { inf, inf, inf });
+
+        LinearProblems.assertUnboundedAndFeasible(new double[] { 0.0, 945.3794988992867, 0.0, 0.0, 0.0 },
+                new double[][] { { -75577.46238154735, 0.0, 0.0, -1.6921265741588134, 0.0 },
+                        { 65.14532793746437, -1636.2589965027373, 536387.9983587967, -14.20665282128471, -1.0848109998174924 }, { 0.0, 0.0, 0.0, 0.0, 0.0 },
+                        { 0.0, 40.196894556014435, -120964.39771485061, -3885544.5345059116, 0.0 } },
+                new double[] { -1000.0, 0.0, 0.0, -5316.914876937166 }, new boolean[] { true, false, true, false },
+                new double[] { 0.0, -inf, -1.2659774301013087, -6.190842291646521E7, 0.0 },
+                new double[] { 7.77845743380529, inf, 3828.514017948034, inf, inf });
+
+        LinearProblems.assertUnboundedAndFeasible(
+                new double[] { -0.029941390264074, -0.05054691590901175, -9.750827299327114E-6, 0.0, -0.6510216858322819, 0.0 },
+                new double[][] { { -0.024672919720106292, 2.121499674611514E-5, 8.905696085196319E8, 0.0, 0.0, 23909.425241297242 },
+                        { 0.0, 0.011544250761553444, -0.010496518837671076, 6.44953019197965E7, 7.693951957699648E-10, 0.0041469698564149775 } },
+                new double[] { 0.0, -1000.0 }, new boolean[] { true, true }, new double[] { -inf, -inf, 0.0, -inf, -0.015390590534648002, 0.0 },
+                new double[] { inf, inf, 2.135895376128294E8, inf, 0.011970081060978802, inf });
     }
 
     @Test
