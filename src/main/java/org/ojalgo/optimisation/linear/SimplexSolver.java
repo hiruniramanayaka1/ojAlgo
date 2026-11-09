@@ -371,9 +371,11 @@ abstract class SimplexSolver extends LinearSolver {
      * A row of the primal pivot column, with an element small by {@link #PIVOT} but not small by this
      * relative to the largest element of the column (1e-8 relative), and not smaller than
      * {@link #PIVOT_FLOOR}, still bounds the step if the step that the other rows and the range of the
-     * entering variable allow is finite and would take its basic variable past its bound by more than
-     * {@link Optimisation.Options#feasibility}. The step it allows itself must not be negative beyond the
-     * {@link #RATIO_RELAX} tolerance.
+     * entering variable allow would take its basic variable past its bound by more than
+     * {@link Optimisation.Options#feasibility}, as an unbounded step always does. The step it allows itself
+     * must not be negative beyond the {@link #RATIO_RELAX} tolerance. When no other row bounds the step, it
+     * must also not take a row whose element is too small to bound the step by these rules, and whose basic
+     * variable is not already past its bound, past that bound by more than the feasibility tolerance.
      */
     private static final NumberContext PIVOT_BLOCKING = NumberContext.ofPrecision(9);
     /**
@@ -1436,6 +1438,23 @@ abstract class SimplexSolver extends LinearSolver {
         }
         double feasibility = options.feasibility.epsilon();
 
+        // Without a regular row that bounds the step, the step that a row with a small element allows can be
+        // very long. It must not take a row that is not past its bound, but whose element is too small to bound
+        // the step, past its bound.
+        double thetaIgnored = POSITIVE_INFINITY;
+        if (!Double.isFinite(thetaRegular)) {
+            for (int k = 0; k < cachedCount; k++) {
+                double scale = myRatioCacheScale[k];
+                if (PIVOT.isZero(scale) && (scale < PIVOT_FLOOR || PIVOT_GROWTH.isSmall(largest, scale) || PIVOT_BLOCKING.isSmall(largest, scale))) {
+                    double infeasibility = mySimplex.getInfeasibility(myRatioCacheIdx[k]);
+                    double past = myRatioCacheExitDirection[k] ? infeasibility : -infeasibility;
+                    if (past <= ZERO) {
+                        thetaIgnored = Math.min(thetaIgnored, myRatioCacheTrueRatio[k] + feasibility / scale);
+                    }
+                }
+            }
+        }
+
         // Keep the cached candidates that pass the pivot limits (PIVOT absolute, PIVOT_GROWTH relative to the
         // largest element of the column), or that PIVOT_BLOCKING keeps, and compute the relaxed minimum
         // theta_max over them, capped at the entering variable's range.
@@ -1457,9 +1476,10 @@ abstract class SimplexSolver extends LinearSolver {
                 double infeasibility = mySimplex.getInfeasibility(myRatioCacheIdx[k]);
                 double past = myRatioCacheExitDirection[k] ? infeasibility : -infeasibility;
                 double step = myRatioCacheTrueRatio[k] - past / scale;
-                // Would the step the other rows allow take the exit variable past its bound?
-                blocking = Double.isFinite(thetaRegular) && step >= -tolerance && !PIVOT_BLOCKING.isSmall(largest, scale)
-                        && (thetaRegular - myRatioCacheTrueRatio[k]) * scale > feasibility;
+                // Would the step the other rows allow, infinite if none of them bounds it, take the exit variable
+                // past its bound?
+                blocking = step >= -tolerance && !PIVOT_BLOCKING.isSmall(largest, scale)
+                        && (thetaRegular - myRatioCacheTrueRatio[k]) * scale > feasibility && myRatioCacheTrueRatio[k] <= thetaIgnored;
                 if (!blocking && Math.abs(step) > tolerance) {
                     continue;
                 }

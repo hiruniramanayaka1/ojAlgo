@@ -985,4 +985,40 @@ public class LinearProblems extends OptimisationLinearTests {
         }
     }
 
+    /**
+     * A small, badly scaled LP from randomised tests. The optimum is 5.090314612529642 (exact, from rational
+     * arithmetic), at x = (10000, 565591.18, -2), but the dual simplex reported UNBOUNDED.
+     * <p>
+     * In the primal iterations that follow the dual ones, every element of the entering column was small by
+     * PIVOT. Such an element bounds the step only if the step the other rows allow would take its basic
+     * variable past its bound, and that was only considered when the other rows bound the step. Here none of
+     * them did, and an unbounded step was assumed.
+     */
+    @Test
+    public void testSmallColumnElementsBoundStep() {
+
+        for (Boolean sparse : new Boolean[] { null, Boolean.FALSE, Boolean.TRUE }) {
+
+            ExpressionsBasedModel model = new ExpressionsBasedModel();
+            model.options.sparse = sparse;
+
+            Variable x0 = model.newVariable("x0").lower(-0.008).upper(10000.0);
+            Variable x1 = model.newVariable("x1").lower(100.0).weight(9.0E-6);
+            Variable x2 = model.newVariable("x2").lower(-2.0).upper(2000.0).weight(3.0E-6);
+
+            model.newExpression("r0").upper(-703013114.2936316).set(x1, -7000000.0).set(x2, -0.006);
+            model.newExpression("r1").lower(-11.269823583399205).set(x0, 3.0E-6).set(x1, -1.9999999999999998E-5).set(x2, -0.006);
+
+            Result result = model.maximise();
+
+            if (DEBUG) {
+                BasicLogger.debug("sparse={}: {}", sparse, result);
+            }
+
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(5.090314612529642, result.getValue(), NumberContext.of(8));
+            TestUtils.assertTrue(model.validate(result));
+        }
+    }
+
 }
