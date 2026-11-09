@@ -132,10 +132,9 @@ public abstract class TRTRS implements LAPACK {
 
     /**
      * More right hand sides than this are solved for together. Fewer are solved for one at a time, each with
-     * a call to {@link TRSV}.
-     * Native {@code dtrtrs}, initialised only when {@link NativeLibrary#isAvailable()}. All arguments are
-     * passed by reference, as to any Fortran routine, followed by the lengths of the three character
-     * arguments.
+     * a call to {@link TRSV}. Native {@code dtrtrs}, initialised only when
+     * {@link NativeLibrary#isAvailable()}. All arguments are passed by reference, as to any Fortran routine,
+     * followed by the lengths of the three character arguments.
      */
     static final class Native {
 

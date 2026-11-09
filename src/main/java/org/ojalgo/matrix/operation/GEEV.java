@@ -52,10 +52,10 @@ import org.ojalgo.array.operation.SCAL;
  * norm 1, and its largest component is real.
  * <p>
  * A is reduced to Hessenberg form ({@link GEHRD}, {@link ORGHR}), and the Schur form ({@link HSEQR}) and the
- * eigenvectors ({@link TREVC}) are computed, without balancing.
- * The native implementation balances A first. The pure Java implementation reduces A to Hessenberg form
- * ({@link GEHRD}, {@link ORGHR}), and computes the Schur form ({@link HSEQR}) and the eigenvectors
- * ({@link TREVC}), without balancing. The order of the eigenvalues can differ between them.
+ * eigenvectors ({@link TREVC}) are computed, without balancing. The native implementation balances A first.
+ * The pure Java implementation reduces A to Hessenberg form ({@link GEHRD}, {@link ORGHR}), and computes the
+ * Schur form ({@link HSEQR}) and the eigenvectors ({@link TREVC}), without balancing. The order of the
+ * eigenvalues can differ between them.
  *
  * @see NativeLibrary
  */

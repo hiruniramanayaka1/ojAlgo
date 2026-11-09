@@ -1550,10 +1550,6 @@ public final class ExpressionsBasedModel implements Optimisation.Model {
         return myVariables.size();
     }
 
-    public double density() {
-        return 0.0;
-    }
-
     /**
      * If any any {@link Expression} has a {@link Quadratic} term this method returns the density of the
      * generated/aggregated objective function. Otherwise it returns the average density of the the constraint
@@ -1720,9 +1716,9 @@ public final class ExpressionsBasedModel implements Optimisation.Model {
      * Not to be confused with {@link #objective()}, which generates the complete objective function from all
      * the weights, this expression's included, and is not to be modified.
      * <p>
-     * Redundant by design: the same as {@code newExpression("OBJECTIVE").weight(1)}, the first time. It writes
-     * the objective as the Optimisation Service client's {@code OptModel} does, and as many expect, so that a
-     * model reads the same in both.
+     * Redundant by design: the same as {@code newExpression("OBJECTIVE").weight(1)}, the first time. It
+     * writes the objective as the Optimisation Service client's {@code OptModel} does, and as many expect, so
+     * that a model reads the same in both.
      *
      * @return The expression to write the objective function in
      */
