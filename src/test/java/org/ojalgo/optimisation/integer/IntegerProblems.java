@@ -582,6 +582,91 @@ public class IntegerProblems extends OptimisationIntegerTests {
     }
 
     /**
+     * Small models from randomised tests, each built around a feasible point. The optima are exact, from a
+     * branch and bound in rational arithmetic. Gomory mixed-integer cuts cut off feasible solutions: the
+     * first model was reported INFEASIBLE, the third and fourth OPTIMAL at worse values, and the second threw
+     * NumberFormatException.
+     * <p>
+     * With the dense tableau a non-basic variable is shifted to the bound it is at. For a variable with only
+     * one finite bound, such as the integer x3 in [-5, inf) of the first model, the shift was not taken back
+     * when the cut was converted to the model's variables, and neither was the sign of a variable at an upper
+     * bound of 0. A non-basic free variable, as in the second model, gives no valid cut. With the revised
+     * simplex store its infinite bound gave an infinite right-hand side.
+     */
+    @Test
+    public void testGomoryMixedIntegerCuts() {
+
+        double inf = Double.POSITIVE_INFINITY;
+
+        // Per variable: lower, upper, weight and 1 if integer
+        double[][][] variables = { { { 10, 17, 0, 1 }, { 8, 18, 2, 0 }, { 0, 4, 7, 0 }, { -5, inf, 0, 1 } },
+                { { -inf, inf, 0, 0 }, { -9, inf, 0, 0 }, { 8, 12, 8, 1 }, { -inf, inf, 0, 1 } },
+                { { 8, 18, 0, 1 }, { 0, 8, 0, 1 }, { -2, inf, -7, 1 }, { -3, inf, 7, 0 }, { 0, 4, 0, 0 } },
+                { { -4, inf, -3, 1 }, { 2, inf, 0, 1 }, { 0, inf, 0, 0 }, { 0, 9, 0, 1 }, { -inf, inf, 8, 1 }, { -8, inf, 1, 0 } } };
+        // Per row: lower, upper and the coefficients
+        double[][][] rows = {
+                { { -inf, 0.5, -3, 6, -2, 0 }, { 173.5, 173.5, 9, 2, 1, 0 }, { 2, inf, 3, -8, 0, -5 }, { -inf, 114, 3, 8, -8, -1 },
+                        { -217.75, inf, -9, -7, 0, 0 } },
+                { { -31.25, -31.25, 8, 5, 2, -9 } }, { { -inf, -38.25, 0, -3, 4, 0, -7 }, { 31.75, inf, 3, -6, 0, 0, 9 }, { -inf, 45, 0, 8, 2, -5, 0 } },
+                { { -inf, 47, 0, -2, 0, 4, 0, -5 }, { -inf, -18.75, 0, 5, 9, 0, 5, 4 }, { -inf, -16, 6, -1, 8, 0, -3, 4 }, { -inf, 35, 0, -7, 0, 8, 0, 0 },
+                        { -inf, 66, -3, 4, 0, 0, -9, 0 }, { 77.5, inf, -8, 0, 2, 4, 0, -5 } } };
+        boolean[] maximise = { true, false, false, false };
+        double[] optimum = { 44.5, 64.0, -18.2, -39.0 };
+
+        for (int c = 0; c < optimum.length; c++) {
+            for (Boolean sparse : new Boolean[] { null, Boolean.FALSE, Boolean.TRUE }) {
+
+                ExpressionsBasedModel model = new ExpressionsBasedModel();
+                model.options.sparse = sparse;
+
+                Variable[] x = new Variable[variables[c].length];
+                for (int j = 0; j < x.length; j++) {
+                    double[] v = variables[c][j];
+                    x[j] = model.newVariable("x" + j);
+                    if (v[2] != 0.0) {
+                        x[j].weight(v[2]);
+                    }
+                    if (Double.isFinite(v[0])) {
+                        x[j].lower(v[0]);
+                    }
+                    if (Double.isFinite(v[1])) {
+                        x[j].upper(v[1]);
+                    }
+                    if (v[3] != 0.0) {
+                        x[j].integer(true);
+                    }
+                }
+
+                for (int i = 0; i < rows[c].length; i++) {
+                    double[] r = rows[c][i];
+                    Expression row = model.newExpression("r" + i);
+                    for (int j = 0; j < x.length; j++) {
+                        if (r[2 + j] != 0.0) {
+                            row.set(x[j], r[2 + j]);
+                        }
+                    }
+                    if (Double.isFinite(r[0])) {
+                        row.lower(r[0]);
+                    }
+                    if (Double.isFinite(r[1])) {
+                        row.upper(r[1]);
+                    }
+                }
+
+                Result result = maximise[c] ? model.maximise() : model.minimise();
+
+                if (DEBUG) {
+                    BasicLogger.debug("model {}, sparse={}: {}", c, sparse, result);
+                }
+
+                TestUtils.assertEquals(State.OPTIMAL, result.getState());
+                TestUtils.assertEquals(optimum[c], result.getValue(), NumberContext.of(8));
+                TestUtils.assertTrue(model.validate(result));
+            }
+        }
+    }
+
+    /**
      * 20120227: Forgot to document what the problem was. Now I just check there is an optimal solution.
      */
     @Test

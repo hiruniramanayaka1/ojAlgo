@@ -307,7 +307,7 @@ abstract class SimplexTableau extends SimplexStore implements Access2D<Double>, 
                 }
                 shifts = myCachedScaledShifts;
             }
-            TableauCutGenerator.applyShiftBackConversion(eq, excluded, lowers, uppers, shifts, atUpper);
+            TableauCutGenerator.applyShiftBackConversion(eq, excluded, lowers, uppers, shifts, atUpper, structure.countModelVariables());
         }
 
         return eq;
