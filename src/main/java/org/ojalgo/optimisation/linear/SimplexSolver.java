@@ -363,9 +363,19 @@ abstract class SimplexSolver extends LinearSolver {
      * dual simplex such an element still enters, if there are no others, when together with the other small
      * elements it can remove the infeasibility, see {@link #judgeInfeasibility(ExitInfo)}. In the primal
      * simplex such an element still bounds a step of (almost) zero length, if no other element bounds the
-     * step, see {@link #PIVOT_GROWTH}.
+     * step, see {@link #PIVOT_GROWTH}, and a step that would otherwise take its basic variable past its
+     * bound, see {@link #PIVOT_BLOCKING}.
      */
     private static final NumberContext PIVOT = NumberContext.of(6);
+    /**
+     * A row of the primal pivot column, with an element small by {@link #PIVOT} but not small by this
+     * relative to the largest element of the column (1e-8 relative), and not smaller than
+     * {@link #PIVOT_FLOOR}, still bounds the step if the step that the other rows and the range of the
+     * entering variable allow is finite and would take its basic variable past its bound by more than
+     * {@link Optimisation.Options#feasibility}. The step it allows itself must not be negative beyond the
+     * {@link #RATIO_RELAX} tolerance.
+     */
+    private static final NumberContext PIVOT_BLOCKING = NumberContext.ofPrecision(9);
     /**
      * Elements of the primal pivot column smaller than this never bound the step, see {@link #PIVOT_GROWTH}.
      * {@link SparseDecomposition} considers a basis with a smaller pivot singular.
@@ -1339,7 +1349,8 @@ abstract class SimplexSolver extends LinearSolver {
 
     /**
      * @param strict true: rows with elements small by {@link #PIVOT} or by {@link #PIVOT_GROWTH} do not bound
-     *               the step; false: some of them do, see {@link #PIVOT_GROWTH}
+     *               the step, except as described at {@link #PIVOT_BLOCKING}; false: some more of them do,
+     *               see {@link #PIVOT_GROWTH}
      */
     private boolean testPrimalExitRatio(final IterDescr iteration, final boolean strict) {
 
@@ -1415,9 +1426,19 @@ abstract class SimplexSolver extends LinearSolver {
             cachedCount++;
         }
 
+        // The relaxed step that the rows passing both pivot limits allow, capped at the entering variable's range
+        double thetaRegular = range;
+        for (int k = 0; k < cachedCount; k++) {
+            double scale = myRatioCacheScale[k];
+            if (!PIVOT.isZero(scale) && !PIVOT_GROWTH.isSmall(largest, scale) && myRatioCacheRelaxed[k] < thetaRegular) {
+                thetaRegular = myRatioCacheRelaxed[k];
+            }
+        }
+        double feasibility = options.feasibility.epsilon();
+
         // Keep the cached candidates that pass the pivot limits (PIVOT absolute, PIVOT_GROWTH relative to the
-        // largest element of the column), and compute the relaxed minimum theta_max over them, capped at the
-        // entering variable's range.
+        // largest element of the column), or that PIVOT_BLOCKING keeps, and compute the relaxed minimum
+        // theta_max over them, capped at the entering variable's range.
         double thetaMax = range;
         int nbKept = 0;
         boolean rejectedBounding = false;
@@ -1427,16 +1448,23 @@ abstract class SimplexSolver extends LinearSolver {
             double scale = myRatioCacheScale[k];
             boolean small = PIVOT.isZero(scale);
             boolean growth = PIVOT_GROWTH.isSmall(largest, scale);
+            boolean blocking = false;
             if (small) {
+                if (growth || scale < PIVOT_FLOOR) {
+                    continue;
+                }
                 // The step, negative if the exit variable is already past the bound it exits to (gaps are >= 0)
                 double infeasibility = mySimplex.getInfeasibility(myRatioCacheIdx[k]);
                 double past = myRatioCacheExitDirection[k] ? infeasibility : -infeasibility;
                 double step = myRatioCacheTrueRatio[k] - past / scale;
-                if (growth || scale < PIVOT_FLOOR || Math.abs(step) > tolerance) {
+                // Would the step the other rows allow take the exit variable past its bound?
+                blocking = Double.isFinite(thetaRegular) && step >= -tolerance && !PIVOT_BLOCKING.isSmall(largest, scale)
+                        && (thetaRegular - myRatioCacheTrueRatio[k]) * scale > feasibility;
+                if (!blocking && Math.abs(step) > tolerance) {
                     continue;
                 }
             }
-            if (strict && (small || growth)) {
+            if (strict && (small || growth) && !blocking) {
                 rejectedBounding |= Double.isFinite(relaxed);
                 continue;
             }

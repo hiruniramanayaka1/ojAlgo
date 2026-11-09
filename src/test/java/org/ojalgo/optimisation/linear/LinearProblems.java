@@ -240,10 +240,16 @@ public class LinearProblems extends OptimisationLinearTests {
     /**
      * https://github.com/optimatika/ojAlgo/issues/707
      * <p>
-     * The solution is x = 10, y = 0, but the dual value of the second constraint, 1E312, overflows. The
-     * tableau is then left with reduced costs that are NaN, so no candidate can enter. That must end the
-     * solve as failed. First the ratio test never returned, and without that the iterations went round
-     * without being counted. The revised simplex recomputes the reduced costs and finds the solution.
+     * The solution is x = 10, y = 0. When y enters, the element of the second constraint, 1E-7, is below the
+     * absolute pivot tolerance. That row was skipped, and the step of 1E7 that the first row allowed took its
+     * slack 1 past its bound. Then the dual value 1E312 overflowed, and the dense tableau was left with
+     * reduced costs that were NaN, so no candidate could enter. That must end the solve as failed. First the
+     * ratio test never returned, and without that the iterations went round without being counted. The
+     * revised simplex recomputed the reduced costs and found the solution. Since issue 716 the second row
+     * bounds the step, and both find the solution directly. {@link #testGitHub707UndefinedRatioBelowFloor()}
+     * still takes that step.
+     * <p>
+     * https://github.com/optimatika/ojAlgo/issues/716
      */
     @Test
     @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
@@ -262,13 +268,39 @@ public class LinearProblems extends OptimisationLinearTests {
 
             Result result = builder.build(options).solve(null);
 
-            if (sparse.booleanValue()) {
-                TestUtils.assertEquals(State.OPTIMAL, result.getState());
-                TestUtils.assertEquals(10.0, result.doubleValue(0), ACCURACY);
-                TestUtils.assertEquals(0.0, result.doubleValue(1), ACCURACY);
-            } else {
-                TestUtils.assertEquals(State.FAILED, result.getState());
-            }
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(10.0, result.doubleValue(0), ACCURACY);
+            TestUtils.assertEquals(0.0, result.doubleValue(1), ACCURACY);
+        }
+    }
+
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/707
+     * <p>
+     * As {@link #testGitHub707UndefinedRatio()}, but the element of y in the second constraint is 1E-12,
+     * below the smallest element that bounds the primal step. The step of 1E7 is taken, the dual value 1E312
+     * overflows, and the dense tableau is left with reduced costs that are NaN, so no candidate can enter.
+     * The revised simplex can not restore feasibility either. Both must end the solve as failed, and not go
+     * round without end.
+     */
+    @Test
+    @Timeout(value = 10, unit = TimeUnit.SECONDS, threadMode = ThreadMode.SEPARATE_THREAD)
+    public void testGitHub707UndefinedRatioBelowFloor() {
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+
+            Optimisation.Options options = new Optimisation.Options();
+            options.sparse = sparse;
+
+            LinearSolver.Builder builder = LinearSolver.newGeneralBuilder(new double[] { 0.0, -1E305 });
+            builder.inequality(-1.0, new double[] { -0.1, -1E-7 });
+            builder.inequality(0.0, new double[] { 0.0, 1E-12 });
+            builder.lower(new double[] { 0.0, 0.0 });
+            builder.upper(new double[] { Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY });
+
+            Result result = builder.build(options).solve(null);
+
+            TestUtils.assertEquals(State.FAILED, result.getState());
         }
     }
 
@@ -441,6 +473,49 @@ public class LinearProblems extends OptimisationLinearTests {
                         { 0.0, 0.011544250761553444, -0.010496518837671076, 6.44953019197965E7, 7.693951957699648E-10, 0.0041469698564149775 } },
                 new double[] { 0.0, -1000.0 }, new boolean[] { true, true }, new double[] { -inf, -inf, 0.0, -inf, -0.015390590534648002, 0.0 },
                 new double[] { inf, inf, 2.135895376128294E8, inf, 0.011970081060978802, inf });
+    }
+
+    /**
+     * https://github.com/optimatika/ojAlgo/issues/716
+     * <p>
+     * The reported LP (17 variables, 379 rows) reduced to 4 variables and 8 rows, one of them an empty
+     * equality. The exact optimum is -21404.075890816253. The slack of the sixth row enters with reduced cost
+     * -2.5E-6, and the largest element of its column is 0.037. The basic slack of the fourth row has the
+     * element 1.9E-7, below the absolute pivot tolerance, so it did not bound the step. The other rows
+     * allowed a step of 6.3E6, that took that slack 0.29 past its bound. The dual iterations restored
+     * feasibility at the same basis, and after repeating this the result was FEASIBLE -21392.17.
+     */
+    @Test
+    public void testGitHub716() {
+
+        double inf = Double.POSITIVE_INFINITY;
+
+        double[] c = { 40.1928439158, -36.3011175881, -0.0144356764049, -0.484592387013 };
+        double[][] rows = { { -4.31593441055, 0.0, 0.25, 0.0 }, { -0.128289921592, 0.0, 8.0, 0.0 }, { -5.52188191383E-8, 0.0, 1.6777216E7, 0.0 },
+                { -1.47942277024, 0.5, 0.0, 0.0 }, { -0.761108495821, 4.0, 0.0, 0.0 }, { -2.62049497286E7, 0.0, 0.0, 1048576.0 },
+                { -3.98448355339, 0.0, 0.0, 0.125 }, { 0.0, 0.0, 0.0, 0.0 } };
+        double[] rhs = { 4.72051852201, 240.780631639, 5.05403734024E8, 13.7481516961, 119.523897196, 4.40110088915E10, 5245.20560741, 0.0 };
+        double[] lower = { 0.0, 0.0, 0.0, -inf };
+        double[] upper = { 8.0, inf, inf, 1759703.656406453 };
+
+        for (Boolean sparse : new Boolean[] { Boolean.FALSE, Boolean.TRUE }) {
+
+            Optimisation.Options options = new Optimisation.Options();
+            options.sparse = sparse;
+
+            LinearSolver.Builder builder = LinearSolver.newBuilder(c);
+            for (int i = 0; i < rows.length - 1; i++) {
+                builder.inequality(rhs[i], rows[i]);
+            }
+            builder.equality(rhs[rows.length - 1], rows[rows.length - 1]);
+            builder.lower(lower);
+            builder.upper(upper);
+
+            Result result = builder.build(options).solve(null);
+
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(-21404.075890816253, result.getValue(), ACCURACY);
+        }
     }
 
     @Test
