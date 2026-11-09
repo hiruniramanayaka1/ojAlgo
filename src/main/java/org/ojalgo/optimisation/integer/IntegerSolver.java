@@ -269,12 +269,17 @@ public final class IntegerSolver extends GenericSolver {
      * Valid bound on the optimal integer objective: best relaxation bound over all open subtrees (deferred
      * frontier head + nodes currently checked out by workers). A non-finite contribution could hide an
      * arbitrarily good solution, so it collapses the bound to the pessimistic value — we never declare
-     * optimality on incomplete information.
+     * optimality on incomplete information. Without a view ordered by objective value, null when no worker
+     * uses one, the frontier is not known and the bound is the pessimistic value.
      */
     private double globalDualBound(final MultiviewSet<NodeKey>.PrioritisedView boundView) {
 
         double pessimistic = mySense == Optimisation.Sense.MIN ? Double.NEGATIVE_INFINITY : Double.POSITIVE_INFINITY;
         double bound = mySense == Optimisation.Sense.MIN ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
+
+        if (boundView == null) {
+            return pessimistic;
+        }
 
         NodeKey head = boundView.peek();
         if (head != null) {

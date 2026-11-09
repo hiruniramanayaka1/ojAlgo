@@ -24,6 +24,8 @@ package org.ojalgo.optimisation.integer;
 import static org.ojalgo.function.constant.BigMath.*;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Tag;
@@ -912,6 +914,46 @@ public class IntegerProblems extends OptimisationIntegerTests {
 
         // Model is infeasible, and must be reported as such
         TestUtils.assertStateLessThanFeasible(tmpResult);
+    }
+
+    /**
+     * A small model from randomised tests, solved with a strategy whose only node priority is breadth first,
+     * or depth first. The optimum is 485/3. Optimality within the gap tolerance is proven against the best
+     * bound of the open nodes, taken from the view of the queue ordered by objective value. Without a
+     * worker using that ordering there was no such view, and the search threw NullPointerException.
+     */
+    @Test
+    public void testPriorityDefinitionsWithoutObjectiveOrder() {
+
+        for (Comparator<NodeKey> priority : List.of(NodeKey.BREADTH_FIRST_SEARCH, NodeKey.DEPTH_FIRST_SEARCH)) {
+
+            ExpressionsBasedModel model = new ExpressionsBasedModel();
+            model.options.integer(IntegerStrategy.DEFAULT.withPriorityDefinitions(priority));
+
+            Variable x0 = model.newVariable("x0").integer().lower(1).upper(7).weight(8);
+            Variable x1 = model.newVariable("x1").integer().upper(2);
+            Variable x2 = model.newVariable("x2").integer().lower(5).weight(9);
+            Variable x3 = model.newVariable("x3").integer().lower(-3).upper(5);
+            Variable x4 = model.newVariable("x4").upper(7).weight(-2);
+            Variable x5 = model.newVariable("x5").weight(3);
+
+            model.newExpression("r0").lower(79.5).set(x1, 9).set(x2, 9).set(x4, -4).set(x5, -9);
+            model.newExpression("r1").upper(104).set(x1, -5).set(x2, 9).set(x3, 4);
+            model.newExpression("r2").lower(-66.75).set(x1, 5).set(x2, -5).set(x4, 9).set(x5, -4);
+            model.newExpression("r3").upper(-68.75).set(x0, 5).set(x1, 5).set(x2, -8).set(x4, 1).set(x5, 2);
+            model.newExpression("r4").upper(62.75).set(x0, -1).set(x1, 8).set(x2, 8).set(x3, 5).set(x4, -9);
+            model.newExpression("r5").upper(-20).set(x0, -6).set(x3, -3).set(x5, -4);
+
+            Result result = model.maximise();
+
+            if (DEBUG) {
+                BasicLogger.debug("{}: {}", priority, result);
+            }
+
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(485.0 / 3.0, result.getValue(), NumberContext.of(8));
+            TestUtils.assertTrue(model.validate(result));
+        }
     }
 
     /**
