@@ -69,10 +69,18 @@ public final class NodeKey implements Comparable<NodeKey> {
 
     public static final Comparator<NodeKey> LIFO_SEQUENCE = Comparator.comparingLong((final NodeKey nk) -> -nk.sequence);
 
-    public static final Comparator<NodeKey> MAX_OBJECTIVE = Comparator.comparingDouble((final NodeKey nk) -> -nk.objective)
+    /**
+     * Largest (parent node) objective function value first, then the smallest depth, then the largest
+     * displacement.
+     */
+    public static final Comparator<NodeKey> MAX_OBJECTIVE = Comparator.comparingDouble((final NodeKey nk) -> -nk.objective).thenComparingInt(nk -> nk.depth)
             .thenComparingDouble(nk -> -nk.displacement);
 
-    public static final Comparator<NodeKey> MIN_OBJECTIVE = Comparator.comparingDouble((final NodeKey nk) -> nk.objective)
+    /**
+     * Smallest (parent node) objective function value first, then the smallest depth, then the largest
+     * displacement.
+     */
+    public static final Comparator<NodeKey> MIN_OBJECTIVE = Comparator.comparingDouble((final NodeKey nk) -> nk.objective).thenComparingInt(nk -> nk.depth)
             .thenComparingDouble(nk -> -nk.displacement);
 
     public static final Comparator<NodeKey> SMALL_DISPLACEMENT = Comparator.comparingDouble((final NodeKey nk) -> nk.displacement);

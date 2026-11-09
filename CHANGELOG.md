@@ -16,6 +16,7 @@ Added / Changed / Deprecated / Fixed / Removed / Security
 #### org.ojalgo.optimisation
 
 - `ExpressionsBasedModel`: presolve prints a warning to standard error, at most once per model, when it fixes a variable whose range is within the feasibility tolerance, but not when multiplied by the variable's largest constraint or objective coefficient – e.g. max 2e20 x + z subject to 1e20 x + z <= 2, x in [0, 3e-20] and z in [0, 1], where x is fixed at 1e-20 and 3 is reported, while the optimum is 4. Such a model is badly scaled. The result is unchanged. (Issue [#709](https://github.com/optimatika/ojAlgo/issues/709))
+- `NodeKey`: `MIN_OBJECTIVE` and `MAX_OBJECTIVE` break ties in the objective function value by depth, the smallest first, before displacement. Ties are common, as both children of a node have its objective function value. Ordered by displacement only, the nodes of some deep branches always came first, and with a single worker, `parallelism(1)`, the search could continue until the time limit, never reaching the nodes that would have ended it.
 
 ### Fixed
 

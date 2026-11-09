@@ -621,8 +621,7 @@ public final class IntegerSolver extends GenericSolver {
             try {
                 // A worker that finds the queue empty keeps polling while other workers are processing nodes,
                 // as those may add more
-                while (workerNormalExit && solverNormalExit.get() && !myOptimalityProven
-                        && (!myDeferredNodes.isEmpty() || !myCheckedOutBounds.isEmpty())) {
+                while (workerNormalExit && solverNormalExit.get() && !myOptimalityProven && (!myDeferredNodes.isEmpty() || !myCheckedOutBounds.isEmpty())) {
 
                     // Registered as pessimistic before polling, so that no other worker can prove optimality
                     // in the window between this node leaving the queue and its bound being recorded.

@@ -919,8 +919,8 @@ public class IntegerProblems extends OptimisationIntegerTests {
     /**
      * A small model from randomised tests, solved with a strategy whose only node priority is breadth first,
      * or depth first. The optimum is 485/3. Optimality within the gap tolerance is proven against the best
-     * bound of the open nodes, taken from the view of the queue ordered by objective value. Without a
-     * worker using that ordering there was no such view, and the search threw NullPointerException.
+     * bound of the open nodes, taken from the view of the queue ordered by objective value. Without a worker
+     * using that ordering there was no such view, and the search threw NullPointerException.
      */
     @Test
     public void testPriorityDefinitionsWithoutObjectiveOrder() {
@@ -963,9 +963,9 @@ public class IntegerProblems extends OptimisationIntegerTests {
      * Reduced cost fixing tightens one bound at a time and passes each change to the node solver. The primal
      * solver can not update a range in place, so it is rebuilt, and the reduced costs of the following
      * variables were read from the new, not yet solved, solver. At a node with x0 <= -2, x2 in [1, 2] and x3
-     * in [4, 6], where the reduced cost of x2 is 0, that fixed x2 <= 1 and cut off the optimum. The first part
-     * checks that node's relaxation directly: after the bound update the reduced costs must be 0 (not solved)
-     * or what they were.
+     * in [4, 6], where the reduced cost of x2 is 0, that fixed x2 <= 1 and cut off the optimum. The first
+     * part checks that node's relaxation directly: after the bound update the reduced costs must be 0 (not
+     * solved) or what they were.
      */
     @Test
     public void testReducedCostFixing() {
@@ -1242,6 +1242,38 @@ public class IntegerProblems extends OptimisationIntegerTests {
 
         TestUtils.assertStateNotLessThanOptimal(resultWithSimplification);
         TestUtils.assertEquals(1.0, resultWithSimplification.getValue(), precision);
+    }
+
+    /**
+     * The model of {@link #testWorkersWaitForNodes()}, with a single worker. That worker orders the nodes by
+     * objective value, and every node has the value 36. Ties were broken by displacement only: the x1 <= -k
+     * branches (0.875) always came before the x4 <= 2k - 3 branches (0.75), which have integer relaxations,
+     * and the search ended at the time limit with FEASIBLE 41. Ties are now broken by depth first.
+     */
+    @Test
+    public void testSingleWorkerObjectiveTies() {
+
+        ExpressionsBasedModel model = new ExpressionsBasedModel();
+        model.options.linear().primal();
+        model.options.parallelism(1);
+        model.options.time_abort = 5_000L;
+
+        Variable x0 = model.newVariable("x0").integer().lower(9).weight(4);
+        Variable x1 = model.newVariable("x1").integer().upper(1);
+        Variable x2 = model.newVariable("x2").integer().lower(0).weight(5);
+        model.newVariable("x3").integer().lower(6).upper(9);
+        Variable x4 = model.newVariable("x4").integer().lower(4);
+        model.newExpression("r0").lower(-72).set(x0, -9).set(x1, -8).set(x2, 5).set(x4, -4);
+
+        Result result = model.minimise();
+
+        if (DEBUG) {
+            BasicLogger.debug("{}", result);
+        }
+
+        TestUtils.assertEquals(State.OPTIMAL, result.getState());
+        TestUtils.assertEquals(36.0, result.getValue(), NumberContext.of(8));
+        TestUtils.assertTrue(model.validate(result));
     }
 
     /**

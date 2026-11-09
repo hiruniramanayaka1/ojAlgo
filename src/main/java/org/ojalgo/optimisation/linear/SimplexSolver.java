@@ -1478,8 +1478,8 @@ abstract class SimplexSolver extends LinearSolver {
                 double step = myRatioCacheTrueRatio[k] - past / scale;
                 // Would the step the other rows allow, infinite if none of them bounds it, take the exit variable
                 // past its bound?
-                blocking = step >= -tolerance && !PIVOT_BLOCKING.isSmall(largest, scale)
-                        && (thetaRegular - myRatioCacheTrueRatio[k]) * scale > feasibility && myRatioCacheTrueRatio[k] <= thetaIgnored;
+                blocking = step >= -tolerance && !PIVOT_BLOCKING.isSmall(largest, scale) && (thetaRegular - myRatioCacheTrueRatio[k]) * scale > feasibility
+                        && myRatioCacheTrueRatio[k] <= thetaIgnored;
                 if (!blocking && Math.abs(step) > tolerance) {
                     continue;
                 }
