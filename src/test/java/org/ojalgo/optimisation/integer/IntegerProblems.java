@@ -915,6 +915,74 @@ public class IntegerProblems extends OptimisationIntegerTests {
     }
 
     /**
+     * A small model from randomised tests, with the primal solver. The optimum is 6, at x = (-2, 3, 2, 5, 0),
+     * but 9 was reported OPTIMAL.
+     * <p>
+     * Reduced cost fixing tightens one bound at a time and passes each change to the node solver. The primal
+     * solver can not update a range in place, so it is rebuilt, and the reduced costs of the following
+     * variables were read from the new, not yet solved, solver. At a node with x0 <= -2, x2 in [1, 2] and x3
+     * in [4, 6], where the reduced cost of x2 is 0, that fixed x2 <= 1 and cut off the optimum. The first part
+     * checks that node's relaxation directly: after the bound update the reduced costs must be 0 (not solved)
+     * or what they were.
+     */
+    @Test
+    public void testReducedCostFixing() {
+
+        ExpressionsBasedModel node = new ExpressionsBasedModel();
+        node.options.linear().primal();
+
+        Variable[] y = new Variable[5];
+        y[0] = node.newVariable("x0").weight(-3).upper(-2);
+        y[1] = node.newVariable("x1").lower(3);
+        y[2] = node.newVariable("x2").lower(1).upper(2);
+        y[3] = node.newVariable("x3").lower(4).upper(6);
+        y[4] = node.newVariable("x4").weight(4).lower(0).upper(6);
+        node.newExpression("r0").level(-61).set(y[0], 9).set(y[2], -4).set(y[3], -7).set(y[4], -1);
+
+        NodeSolver solver = node.prepare(Optimisation.Sense.MIN, NodeSolver::new);
+
+        Result relaxed = solver.solve(null);
+        TestUtils.assertEquals(State.OPTIMAL, relaxed.getState());
+        TestUtils.assertEquals(6.0, relaxed.getValue(), 1E-9);
+
+        double[] before = new double[y.length];
+        for (int j = 0; j < y.length; j++) {
+            before[j] = solver.getReducedGradient(j);
+        }
+
+        y[0].lower(-3);
+        solver.update(y[0]);
+
+        for (int j = 0; j < y.length; j++) {
+            double after = solver.getReducedGradient(j);
+            if (DEBUG) {
+                BasicLogger.debug("x{}: {} -> {}", j, before[j], after);
+            }
+            TestUtils.assertTrue(after == 0.0 || after == before[j]);
+        }
+
+        ExpressionsBasedModel model = new ExpressionsBasedModel();
+        model.options.linear().primal();
+
+        Variable x0 = model.newVariable("x0").integer().weight(-3);
+        model.newVariable("x1").lower(3);
+        Variable x2 = model.newVariable("x2").integer().upper(2);
+        Variable x3 = model.newVariable("x3").integer().lower(-9).upper(6);
+        Variable x4 = model.newVariable("x4").integer().weight(4).lower(0).upper(6);
+        model.newExpression("r0").level(-61).set(x0, 9).set(x2, -4).set(x3, -7).set(x4, -1);
+
+        Result result = model.minimise();
+
+        if (DEBUG) {
+            BasicLogger.debug("MIP: {}", result);
+        }
+
+        TestUtils.assertEquals(State.OPTIMAL, result.getState());
+        TestUtils.assertEquals(6.0, result.getValue(), NumberContext.of(8));
+        TestUtils.assertTrue(model.validate(result));
+    }
+
+    /**
      * Reduced from a random model with coefficients over the whole double range. The root node solution has x
      * = 1.989e167, an integer, and y infinite: r1 needs y >= 1.989e372, which is not a double. The node
      * solution was rounded, to look for an integer solution, and converting y to BigDecimal threw
@@ -1249,6 +1317,46 @@ public class IntegerProblems extends OptimisationIntegerTests {
 
             TestUtils.assertEquals(State.UNBOUNDED, relaxed.getState());
             TestUtils.assertEquals(State.INFEASIBLE, result.getState());
+        }
+    }
+
+    /**
+     * A small model from randomised tests, with the primal solver. The optimum is 36, the LP bound, at e.g. x
+     * = (9, -4, 0, 6, 4). x1 has no lower bound and x4 no upper bound, and neither is in the objective
+     * function. Every node relaxation has the value 36, and branching alternates x1 <= -k and x4 >= 2k - 2
+     * without end, while the other branches, x4 <= 2k - 3, have integer relaxations.
+     * <p>
+     * A worker that found the queue empty stopped, even while another worker was still processing a node. In
+     * this narrow tree only one worker remained, and when that was the minimum objective or depth first
+     * worker the integer branches were never processed – the time limit ended the search with FEASIBLE 41.
+     * Which worker remains varies, so the model is solved a few times.
+     */
+    @Test
+    public void testWorkersWaitForNodes() {
+
+        for (int r = 0; r < 3; r++) {
+
+            ExpressionsBasedModel model = new ExpressionsBasedModel();
+            model.options.linear().primal();
+            model.options.parallelism(3);
+            model.options.time_abort = 5_000L;
+
+            Variable x0 = model.newVariable("x0").integer().lower(9).weight(4);
+            Variable x1 = model.newVariable("x1").integer().upper(1);
+            Variable x2 = model.newVariable("x2").integer().lower(0).weight(5);
+            model.newVariable("x3").integer().lower(6).upper(9);
+            Variable x4 = model.newVariable("x4").integer().lower(4);
+            model.newExpression("r0").lower(-72).set(x0, -9).set(x1, -8).set(x2, 5).set(x4, -4);
+
+            Result result = model.minimise();
+
+            if (DEBUG) {
+                BasicLogger.debug("{}: {}", r, result);
+            }
+
+            TestUtils.assertEquals(State.OPTIMAL, result.getState());
+            TestUtils.assertEquals(36.0, result.getValue(), NumberContext.of(8));
+            TestUtils.assertTrue(model.validate(result));
         }
     }
 

@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.locks.LockSupport;
 
 import org.ojalgo.concurrent.MultiviewSet;
 import org.ojalgo.concurrent.ProcessingService;
@@ -167,6 +168,11 @@ public final class IntegerSolver extends GenericSolver {
      * continuous part would remove it.
      */
     private static final NumberContext CANDIDATE_FEASIBILITY = NumberContext.of(8);
+    /**
+     * How long, in nanoseconds, a worker that found no node waits before it polls again, while other workers
+     * are processing nodes.
+     */
+    private static final long IDLE_WAIT_NANOS = 50_000L;
     private static final int STRONG_BRANCH_CANDIDATES = 16;
     private static final double STRONG_BRANCH_INFEASIBLE_PENALTY = 10.0;
 
@@ -608,7 +614,10 @@ public final class IntegerSolver extends GenericSolver {
 
             NodeKey node = null;
             try {
-                while (workerNormalExit && solverNormalExit.get() && !myOptimalityProven && !myDeferredNodes.isEmpty()) {
+                // A worker that finds the queue empty keeps polling while other workers are processing nodes,
+                // as those may add more
+                while (workerNormalExit && solverNormalExit.get() && !myOptimalityProven
+                        && (!myDeferredNodes.isEmpty() || !myCheckedOutBounds.isEmpty())) {
 
                     // Registered as pessimistic before polling, so that no other worker can prove optimality
                     // in the window between this node leaving the queue and its bound being recorded.
@@ -635,6 +644,10 @@ public final class IntegerSolver extends GenericSolver {
                     }
 
                     myCheckedOutBounds.remove(worker);
+
+                    if (node == null) {
+                        LockSupport.parkNanos(IDLE_WAIT_NANOS);
+                    }
 
                     if (!workerNormalExit) {
                         solverNormalExit.set(workerNormalExit);
