@@ -818,6 +818,32 @@ public class IntegerProblems extends OptimisationIntegerTests {
     }
 
     /**
+     * Reduced from a random model with coefficients over the whole double range. The root node solution has x
+     * = 1.989e167, an integer, and y infinite: r1 needs y >= 1.989e372, which is not a double. The node
+     * solution was rounded, to look for an integer solution, and converting y to BigDecimal threw
+     * NumberFormatException. There is no solution in double values.
+     */
+    @Test
+    public void testRoundingInfiniteValue() {
+
+        ExpressionsBasedModel model = new ExpressionsBasedModel();
+
+        Variable x = model.newVariable("x").integer(true);
+        Variable y = model.newVariable("y");
+
+        model.newExpression("r0").level(2.5738882534603326E256).set(x, 1.2939807349841934E89);
+        model.newExpression("r1").upper(1E202).set(x, 1E232).set(y, -1E27);
+
+        Result result = model.minimise();
+
+        if (DEBUG) {
+            BasicLogger.debug(result);
+        }
+
+        TestUtils.assertStateLessThanFeasible(result);
+    }
+
+    /**
      * I am trying to call Ojalgo 40 from AnyLogic 7.3.2 (http://www.anylogic..com/downloads) on Ubuntu 16.04
      * in order to solve a Traveling Salesman Problem, but Ojalgo sometimes stops on a feasible solution
      * before the optimum. The following code works well without Anylogic and always finds 917.31 as optimal

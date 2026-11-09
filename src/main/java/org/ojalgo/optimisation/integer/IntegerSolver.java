@@ -1164,7 +1164,11 @@ public final class IntegerSolver extends GenericSolver {
         if (nbVars > nbInts) {
             for (int j = 0; j < nbVars; j++) {
                 if (rounded[j] == null) {
-                    rounded[j] = BigDecimal.valueOf(nodeResult.doubleValue(j));
+                    double value = nodeResult.doubleValue(j);
+                    if (!Double.isFinite(value)) {
+                        return;
+                    }
+                    rounded[j] = BigDecimal.valueOf(value);
                 }
             }
         }
