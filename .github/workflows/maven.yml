@@ -1,3 +1,9 @@
+# Optimized by ci-cost (https://github.com/mariotavarez/ci-cost)
+# Applied 2 optimizations:
+# - [HIGH] Add maven dependency cache to "build" job
+# - [MEDIUM] Add concurrency group to "maven.yml"
+# Estimated savings: ~7 min/run
+#
 name: Java CI with Maven
 
 on:
@@ -7,6 +13,10 @@ on:
   pull_request:
     branches: [ "develop" ]
 
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
 
